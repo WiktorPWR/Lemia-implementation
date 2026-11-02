@@ -84,6 +84,15 @@ Przykłady:
 > Biblioteka musi być zbudowana pod **MinGW/g++** (pliki `.a`). Pliki `.lib` z Visual Studio
 > zwykle nie zadziałają z g++.
 
+## Podpowiadanie w VS Code (clangd)
+
+Makefile przy każdej kompilacji zapisuje `compile_commands.json` z tymi samymi flagami
+(`INC_DIRS`, `CXXFLAGS`). Dzięki temu clangd podpowiada kod i widzi Twoje headery i biblioteki.
+**Po dodaniu pliku albo zmianie Makefile zbuduj projekt raz.** Gdy podpowiedzi „zgłupieją”:
+`Ctrl+Shift+P` → **clangd: Restart language server**.
+
+> Ścieżki w `INC_DIRS` pisz z ukośnikiem `/` (np. `D:/libs/glm`). Odwrotny ukośnik `\` psuje plik JSON.
+
 ## Przydatne flagi
 
 - `LDFLAGS := -static` sprawia, że `.exe` działa bez DLL-i MinGW (np. na innym komputerze).

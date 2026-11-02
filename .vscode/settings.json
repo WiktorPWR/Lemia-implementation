@@ -1,0 +1,22 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}/Code/CPU_and_GPU",
+
+    // --- clangd: podpowiadanie, bledy na biezaco, "idz do definicji" ---
+    "clangd.arguments": [
+        "--query-driver=**/g++.exe,**/gcc.exe",
+        "--background-index",
+        "--completion-style=detailed",
+        "--header-insertion=never",
+        "--pch-storage=memory"
+    ],
+    // IntelliSense Microsoftu wylaczony, zeby nie dublowal sie z clangd
+    "C_Cpp.intelliSenseEngine": "disabled",
+    // Flylint ma globalnie ustawienia pod STM32 (MISRA, c11) - tu niepotrzebny, bledy pokazuje clangd
+    "c-cpp-flylint.enable": false,
+
+    "files.associations": {
+        "*.cu": "cuda-cpp",
+        "*.cuh": "cuda-cpp",
+        ".clangd": "yaml"
+    }
+}

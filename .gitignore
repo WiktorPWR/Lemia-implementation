@@ -23,9 +23,14 @@ CMakeCache.txt
 CMakeFiles/
 CMakeUserPresets.json
 
-# IDE / edytory
+# clangd (generowane przy budowaniu / indeks)
+compile_commands.json
+.cache/
+
+# IDE / edytory (ustawienia projektu dla VS Code zostaja w repo)
 .vs/
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.user
 

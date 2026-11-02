@@ -1,0 +1,22 @@
+# Konfiguracja clangd (podpowiadanie w VS Code) dla projektu CPU + CUDA.
+# compile_commands.json zawiera flagi nvcc, ktorych clang nie zna - usuwamy je
+# i podajemy clangowi, gdzie jest CUDA i pod jaka karte (GTX 1050 = sm_61).
+
+# Wszystkie pliki (takze zwykle .h, ktore clangd ustawia "na wzor" plikow .cu)
+CompileFlags:
+  Remove:
+    - -forward-unknown-to-host-compiler
+    - -Xcompiler*
+    - --generate-code*
+    - -Wno-deprecated-gpu-targets
+  Add:
+    - --cuda-path=D:/CUDA/v12.9
+    - --cuda-gpu-arch=sm_61
+    - -Wno-unknown-cuda-version
+---
+# Pliki CUDA: czytaj jako CUDA (nvcc-owe "-x cu" clang nie rozumie)
+If:
+  PathMatch: .*\.(cu|cuh)
+CompileFlags:
+  Remove: [-x]
+  Add: [-xcuda]

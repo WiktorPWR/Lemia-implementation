@@ -10,6 +10,10 @@ build/
 *.pdb
 *.ilk
 
+# clangd (kopiowane przez build_and_run.bat / indeks)
+compile_commands.json
+.cache/
+
 # Lokalne ustawienia CMake / IDE
 CMakeUserPresets.json
 .vs/

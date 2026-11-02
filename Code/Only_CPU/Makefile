@@ -33,7 +33,8 @@ OBJS := $(SRCS:$(SRC_DIR)/%.cpp=$(BUILD)/obj/%.o)
 DEPS := $(OBJS:.o=.d)
 
 # -MMD -MP: g++ zapisuje, z jakich headerow korzysta plik -> zmiana headera = rekompilacja
-CPPFLAGS := $(addprefix -I,$(INC_DIRS)) -MMD -MP
+INC_FLAGS := $(addprefix -I,$(INC_DIRS))
+CPPFLAGS  := $(INC_FLAGS) -MMD -MP
 LDFLAGS  += $(addprefix -L,$(LIB_DIRS))
 LDLIBS   := $(addprefix -l,$(LIBS))
 
@@ -55,7 +56,15 @@ endif
 # ================= Reguly =================
 .PHONY: all run clean
 
-all: $(EXE)
+all: $(EXE) compile_commands.json
+
+# compile_commands.json dla clangd (podpowiadanie w VS Code) - te same flagi co przy kompilacji
+comma := ,
+COMPDB_ENTRY = {"directory": "$(CURDIR)", "file": "$1", "command": "$(CXX) $(INC_FLAGS) $(CXXFLAGS) -c $1"}
+
+compile_commands.json: $(SRCS) Makefile
+	$(file >$@,[$(subst } {,}$(comma) {,$(strip $(foreach s,$(SRCS),$(call COMPDB_ENTRY,$s))))])
+	@echo Zapisano $@
 
 $(EXE): $(OBJS)
 	$(call mkdir,$(@D))

@@ -1,6 +1,10 @@
 # Wyniki budowania (Makefile / g++)
 build/
 
+# clangd (generowane przez Makefile / indeks)
+compile_commands.json
+.cache/
+
 # Pliki kompilacji, gdyby powstaly poza build/
 *.exe
 *.o

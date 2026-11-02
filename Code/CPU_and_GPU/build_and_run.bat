@@ -40,6 +40,8 @@ cd /d "%~dp0"
 
 cmake -S . -B "build\%CONFIG%" -G Ninja -DCMAKE_BUILD_TYPE=%CONFIG%
 if errorlevel 1 ( echo. & echo Blad konfiguracji CMake. & exit /b 1 )
+REM kopia dla clangd - szuka compile_commands.json w folderze projektu
+copy /y "build\%CONFIG%\compile_commands.json" compile_commands.json >nul
 
 cmake --build "build\%CONFIG%"
 if errorlevel 1 ( echo. & echo Blad kompilacji. & exit /b 1 )

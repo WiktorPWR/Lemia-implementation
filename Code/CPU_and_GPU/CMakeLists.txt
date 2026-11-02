@@ -7,6 +7,9 @@ endif()
 
 project(CPU_and_GPU LANGUAGES CXX CUDA)
 
+# compile_commands.json dla clangd (podpowiadanie w VS Code)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 17)

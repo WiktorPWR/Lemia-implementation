@@ -207,10 +207,20 @@ ustawionym na plik `.lib`. Kopiowanie DLL nie jest wtedy potrzebne.
 
 ---
 
+## Podpowiadanie w VS Code (clangd)
+
+clangd podpowiada kod, pokazuje błędy na bieżąco i obsługuje „Idź do definicji” (F12), także w plikach `.cu`.
+
+- `build_and_run.bat` przy każdej konfiguracji kopiuje `compile_commands.json` do tego folderu.
+  Z niego clangd wie, jak kompilowany jest każdy plik. **Po dodaniu nowego pliku uruchom skrypt raz.**
+- `.clangd` usuwa flagi nvcc, których clang nie rozumie, wskazuje CUDA (`--cuda-path=D:/CUDA/v12.9`)
+  i ustawia kartę `sm_61`. Po aktualizacji CUDA zmień tam ścieżkę.
+- Gdy podpowiedzi „zgłupieją”: `Ctrl+Shift+P` → **clangd: Restart language server**.
+
 ## Inna karta graficzna
 
 Architektura GPU jest ustawiona na początku `CMakeLists.txt`: `CMAKE_CUDA_ARCHITECTURES 61`
-(GTX 1050, Pascal). Dla innej karty zmień liczbę, np. `75` (RTX 20xx), `86` (RTX 30xx), `89` (RTX 40xx),
+(GTX 1050, Pascal), a dla clangd także `--cuda-gpu-arch=sm_61` w `.clangd`. Dla innej karty zmień liczbę, np. `75` (RTX 20xx), `86` (RTX 30xx), `89` (RTX 40xx),
 albo podaj kilka naraz: `61;86`. Po zmianie zrób `.\build_and_run.bat clean`.
 
 ## Typowe problemy
