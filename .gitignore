@@ -1,0 +1,35 @@
+# Foldery budowania (w kazdym podprojekcie)
+build/
+out/
+cmake-build-*/
+
+# Pliki wynikowe kompilacji C++/CUDA
+*.exe
+*.dll
+*.obj
+*.o
+*.lib
+*.a
+*.exp
+*.pdb
+*.ilk
+*.idb
+*.fatbin
+*.ptx
+*.cubin
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+
+# IDE / edytory
+.vs/
+.vscode/
+.idea/
+*.user
+
+# System
+Thumbs.db
+desktop.ini
+.DS_Store

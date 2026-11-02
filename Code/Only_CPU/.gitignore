@@ -1,0 +1,8 @@
+# Wyniki budowania (Makefile / g++)
+build/
+
+# Pliki kompilacji, gdyby powstaly poza build/
+*.exe
+*.o
+*.d
+*.a
