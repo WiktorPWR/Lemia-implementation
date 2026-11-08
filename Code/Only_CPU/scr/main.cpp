@@ -7,9 +7,15 @@
 #define SIZE_OF_BOARD 256
 #define RADIUS 13
 #define SEED 42
+#define NUMBER_OF_INTERATION 1000
 #define NUMBER_OF_RINGS 1
 #define SIZE_OF_MASK (RADIUS * 2 + 1)
 #define SIZE_OF_SQUARE 40
+
+#define SIGMA 0.043
+#define MU 0.3
+#define DLUGOSC_KROKU 0.1
+
 const double height_of_section[NUMBER_OF_RINGS] = {
     1.0}; // to  jest wysokosc pierscienia
 double current_board[SIZE_OF_BOARD][SIZE_OF_BOARD];
@@ -22,18 +28,41 @@ void init_mask(void);
 int main() {
   init_board();
   init_mask();
-  double sum = 0;
-  for (int i = 0; i < SIZE_OF_MASK; i++) {
-    for (int j = 0; j < SIZE_OF_MASK; j++) {
-      printf("%f ", mask[i][j]);
-      sum += mask[i][j];
-    }
-    printf("\n");
-  }
-  printf("Suma wag po normalizacji: %f\n", sum);
-  printf("Srodek maski: %f\n", mask[RADIUS][RADIUS]);
 
-  printf("Only_CPU dziala, 2 + 3 = %d\n", add(2, 3));
+  // Idąc po naszych iteracjach
+  for (int iteration = 0; iteration < NUMBER_OF_INTERATION; iteration++) {
+    // Przeprowadzamy aktualizację planszy
+    for (int x = 0; x < SIZE_OF_BOARD; x++) {
+      for (int y = 0; y < SIZE_OF_BOARD; y++) {
+        new_board[x][y] = 0.0;
+        double U = 0.0;
+        // Dla kazdje komorki liczymy jej nowa wartosc na podstawei  maski
+        for (int i = 0; i < SIZE_OF_MASK; i++) {
+          for (int j = 0; j < SIZE_OF_MASK; j++) {
+            int x_index = (x + i - RADIUS + SIZE_OF_BOARD) % SIZE_OF_BOARD;
+            int y_index = (y + j - RADIUS + SIZE_OF_BOARD) % SIZE_OF_BOARD;
+            U += current_board[x_index][y_index] * mask[i][j];
+          }
+        }
+        double G = (2 * exp((-pow((U - MU), 2)) / (2 * SIGMA * SIGMA))) - 1;
+        double before_cut_value = current_board[x][y] + DLUGOSC_KROKU * G;
+        if (before_cut_value > 1.0) {
+          new_board[x][y] = 1.0;
+        } else if (before_cut_value < 0.0) {
+          new_board[x][y] = 0.0;
+        } else {
+          new_board[x][y] = before_cut_value;
+        }
+      }
+    }
+
+    // Przenosimy nowa plansze na stara
+    for (int i = 0; i < SIZE_OF_BOARD; i++) {
+      for (int j = 0; j < SIZE_OF_BOARD; j++) {
+        current_board[i][j] = new_board[i][j];
+      }
+    }
+  }
   return 0;
 }
 
