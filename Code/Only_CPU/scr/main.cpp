@@ -1,10 +1,8 @@
 // main.cpp - punkt startowy programu
-#include "example.h"
 #include "pgm.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
 
 #define SIZE_OF_BOARD 256
 #define RADIUS 13
@@ -14,7 +12,7 @@
 #define SIZE_OF_MASK (RADIUS * 2 + 1)
 #define SIZE_OF_SQUARE 40
 
-const char *OUTPUT_FOLDER = "Code/Only_CPU/results/";
+const char *OUTPUT_FOLDER = "Results/";
 
 #define SIGMA 0.043
 #define MU 0.3

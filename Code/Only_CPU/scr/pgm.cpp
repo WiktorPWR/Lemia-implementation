@@ -1,4 +1,5 @@
 #include "pgm.h"
+#include <filesystem>
 
 // Tworzy folder na wyniki (razem z nadrzędnymi), jeśli jeszcze nie istnieje.
 // Zwraca 0, gdy wszystko OK, 1 przy błędzie.
