@@ -1,8 +1,10 @@
 // main.cpp - punkt startowy programu
 #include "example.h"
+#include "pgm.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 
 #define SIZE_OF_BOARD 256
 #define RADIUS 13
@@ -11,6 +13,8 @@
 #define NUMBER_OF_RINGS 1
 #define SIZE_OF_MASK (RADIUS * 2 + 1)
 #define SIZE_OF_SQUARE 40
+
+const char *OUTPUT_FOLDER = "Code/Only_CPU/results/";
 
 #define SIGMA 0.043
 #define MU 0.3
@@ -28,6 +32,10 @@ void init_mask(void);
 int main() {
   init_board();
   init_mask();
+  // Zapisujemy aktualny stan planszy jako obrazek PGM
+  if (init_output(OUTPUT_FOLDER) != 0) {
+    return 1; // błąd przy tworzeniu folderu
+  }
 
   // Idąc po naszych iteracjach
   for (int iteration = 0; iteration < NUMBER_OF_INTERATION; iteration++) {
@@ -60,6 +68,13 @@ int main() {
     for (int i = 0; i < SIZE_OF_BOARD; i++) {
       for (int j = 0; j < SIZE_OF_BOARD; j++) {
         current_board[i][j] = new_board[i][j];
+      }
+    }
+
+    if (iteration % 10 == 0) {
+      if (save_board_frame(OUTPUT_FOLDER, iteration, &current_board[0][0],
+                           SIZE_OF_BOARD) != 0) {
+        return 1; // błąd przy zapisie pliku
       }
     }
   }
