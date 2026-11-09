@@ -1,6 +1,8 @@
 # Makefile - projekt Only_CPU (g++ / MinGW)
 # Uzycie:  mingw32-make              - kompilacja (release)
 #          mingw32-make run          - kompilacja + uruchomienie
+#          mingw32-make show         - kompilacja + uruchomienie + okno z wynikami (Python)
+#          mingw32-make view         - samo okno z wynikami, bez liczenia od nowa
 #          mingw32-make MODE=debug   - kompilacja w trybie debug
 #          mingw32-make clean        - usuwa folder build
 
@@ -15,6 +17,10 @@ LIBS     :=                  # nazwy bibliotek bez "lib"  (-l), np. sfml-graphic
 
 CXXFLAGS := -std=c++17 -Wall -Wextra
 LDFLAGS  :=
+
+# Wizualizacja: RESULTS_DIR musi byc tym samym folderem co OUTPUT_FOLDER w main.cpp
+RESULTS_DIR := Results
+VIEWER      := ../Visualization/lenia_viewer.py
 
 ifeq ($(MODE),debug)
   CXXFLAGS += -O0 -g
@@ -46,15 +52,17 @@ ifeq ($(OS),Windows_NT)
   mkdir  = @if not exist "$(subst /,\,$1)" mkdir "$(subst /,\,$1)" 2>nul || ver >nul
   RMDIR  = @if exist build rmdir /s /q build
   RUN    = $(subst /,\,$(EXE))
+  PYTHON ?= python
 else
   EXE   := $(BUILD)/$(TARGET)
   mkdir  = @mkdir -p $1
   RMDIR  = @rm -rf build
   RUN    = ./$(EXE)
+  PYTHON ?= python3
 endif
 
 # ================= Reguly =================
-.PHONY: all run clean
+.PHONY: all run clean show view
 
 all: $(EXE) compile_commands.json
 
@@ -76,6 +84,14 @@ $(BUILD)/obj/%.o: $(SRC_DIR)/%.cpp
 
 run: all
 	$(RUN)
+
+# show zalezy od run: najpierw symulacja, okno otwiera sie dopiero po jej zakonczeniu
+# (jesli program zwroci blad, make przerywa i okno sie nie otworzy)
+show: run
+	$(PYTHON) $(VIEWER) $(RESULTS_DIR)
+
+view:
+	$(PYTHON) $(VIEWER) $(RESULTS_DIR)
 
 clean:
 	$(RMDIR)

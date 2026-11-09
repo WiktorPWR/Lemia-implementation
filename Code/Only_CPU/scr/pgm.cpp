@@ -1,8 +1,10 @@
+/**
+ * @file pgm.cpp
+ * @brief Implementation of the PGM image writer declared in pgm.h.
+ */
 #include "pgm.h"
 #include <filesystem>
 
-// Tworzy folder na wyniki (razem z nadrzędnymi), jeśli jeszcze nie istnieje.
-// Zwraca 0, gdy wszystko OK, 1 przy błędzie.
 int init_output(const char *folder) {
   std::error_code ec;
   std::filesystem::create_directories(folder, ec);
@@ -13,9 +15,20 @@ int init_output(const char *folder) {
   return 0;
 }
 
-// Zapisuje tablicę size x size jako obrazek PGM (format P5, binarny).
-// data - wskaźnik na pierwszy element tablicy, np. &current_board[0][0]
-// vmax - wartość, która ma być biała (plansza: 1.0, maska: jej maksimum)
+/**
+ * @brief Writes a square array of doubles as a binary PGM (P5) image.
+ *
+ * Every value is divided by @p vmax, clamped to [0, 1] and scaled to a byte
+ * in 0..255. Pixels are written row by row, the same order in which a C 2D
+ * array is stored in memory.
+ *
+ * @param path Path of the file to create (overwritten if it already exists).
+ * @param data Pointer to the first of size * size values.
+ * @param size Width (and height) of the image in pixels.
+ * @param vmax Value that becomes white (1.0 for the board, the maximum
+ *             weight for the mask).
+ * @return 0 on success, 1 if the file could not be opened.
+ */
 static int save_pgm(const char *path, const double *data, int size,
                     double vmax) {
   FILE *f = fopen(path, "wb"); // "wb" = binarnie, ważne na Windowsie
@@ -40,8 +53,6 @@ static int save_pgm(const char *path, const double *data, int size,
   return 0;
 }
 
-// Zapisuje aktualny stan planszy jako folder/frame_00000.pgm, frame_00001.pgm,
-// ...
 int save_board_frame(const char *folder, int frame_number,
                      const double *current_board_prt, size_t size_fo_board) {
   char path[512];

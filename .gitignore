@@ -38,3 +38,6 @@ compile_commands.json
 Thumbs.db
 desktop.ini
 .DS_Store
+
+result/
+Code/Only_CPU/Results/
