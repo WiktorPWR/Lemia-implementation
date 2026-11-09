@@ -1,10 +1,12 @@
 # Makefile - projekt Only_CPU (g++ / MinGW)
 # Uzycie:  mingw32-make              - kompilacja (release)
 #          mingw32-make run          - kompilacja + uruchomienie
-#          mingw32-make show         - kompilacja + uruchomienie + okno z wynikami (Python)
+#          mingw32-make show         - kompilacja + czyszczenie wynikow + uruchomienie + okno z wynikami
 #          mingw32-make view         - samo okno z wynikami, bez liczenia od nowa
+#          mingw32-make gif          - GIF z istniejacych klatek (Results/animation.gif)
 #          mingw32-make MODE=debug   - kompilacja w trybie debug
 #          mingw32-make clean        - usuwa folder build
+#          mingw32-make clean_results - usuwa folder z klatkami (Results)
 
 # ================= Ustawienia (to zmieniasz) =================
 TARGET   := Only_CPU
@@ -21,6 +23,7 @@ LDFLAGS  :=
 # Wizualizacja: RESULTS_DIR musi byc tym samym folderem co OUTPUT_FOLDER w main.cpp
 RESULTS_DIR := Results
 VIEWER      := ../Visualization/lenia_viewer.py
+GIF_MAKER   := ../Visualization/make_gif.py
 
 ifeq ($(MODE),debug)
   CXXFLAGS += -O0 -g
@@ -51,18 +54,20 @@ ifeq ($(OS),Windows_NT)
   # "|| ver >nul": przy kompilacji rownoleglej (-j) inny proces mogl juz utworzyc folder
   mkdir  = @if not exist "$(subst /,\,$1)" mkdir "$(subst /,\,$1)" 2>nul || ver >nul
   RMDIR  = @if exist build rmdir /s /q build
+  RMRESULTS = @if exist "$(RESULTS_DIR)" rmdir /s /q "$(RESULTS_DIR)"
   RUN    = $(subst /,\,$(EXE))
   PYTHON ?= python
 else
   EXE   := $(BUILD)/$(TARGET)
   mkdir  = @mkdir -p $1
   RMDIR  = @rm -rf build
+  RMRESULTS = @rm -rf "$(RESULTS_DIR)"
   RUN    = ./$(EXE)
   PYTHON ?= python3
 endif
 
 # ================= Reguly =================
-.PHONY: all run clean show view
+.PHONY: all run clean clean_results show view gif
 
 all: $(EXE) compile_commands.json
 
@@ -85,15 +90,27 @@ $(BUILD)/obj/%.o: $(SRC_DIR)/%.cpp
 run: all
 	$(RUN)
 
-# show zalezy od run: najpierw symulacja, okno otwiera sie dopiero po jej zakonczeniu
-# (jesli program zwroci blad, make przerywa i okno sie nie otworzy)
-show: run
+# show: kompilacja -> usuniecie starych klatek -> symulacja -> GIF -> okno z wynikami.
+# Komendy wykonuja sie po kolei; jesli program zwroci blad, make przerywa
+# i okno sie nie otworzy. Nie zalezy od "run", bo czyszczenie musi byc PRZED symulacja.
+show: all
+	$(RMRESULTS)
+	$(RUN)
+	$(PYTHON) $(GIF_MAKER) $(RESULTS_DIR)
 	$(PYTHON) $(VIEWER) $(RESULTS_DIR)
 
 view:
 	$(PYTHON) $(VIEWER) $(RESULTS_DIR)
 
+# GIF z istniejacych klatek (zapisuje RESULTS_DIR/animation.gif)
+gif:
+	$(PYTHON) $(GIF_MAKER) $(RESULTS_DIR)
+
 clean:
 	$(RMDIR)
+
+# usuwa folder z klatkami (program sam go utworzy przy nastepnym uruchomieniu)
+clean_results:
+	$(RMRESULTS)
 
 -include $(DEPS)
