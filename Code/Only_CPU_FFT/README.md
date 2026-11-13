@@ -22,6 +22,16 @@ Only_CPU_FFT/
 
 MinGW z `g++` i `mingw32-make` w PATH (u Ciebie `D:\C++\ming\ucrt64\bin`).
 
+Biblioteka **FFTW3** (transformata Fouriera), instalowana przez pacman z MSYS2:
+
+```bash
+pacman -S mingw-w64-ucrt-x86_64-fftw
+```
+
+W Makefile jest podpięta przez `LIBS := fftw3`, w kodzie: `#include <fftw3.h>`.
+Program potrzebuje `libfftw3-3.dll` — leży w `D:\C++\ming\ucrt64\bin`, więc z tym folderem
+w PATH uruchamia się bez kopiowania DLL.
+
 ## Kompilacja i uruchomienie
 
 W terminalu, w tym folderze:

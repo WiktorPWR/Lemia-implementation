@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <fftw3.h>
 
 #define SIZE_OF_BOARD 256
 #define RADIUS 13
@@ -53,8 +54,27 @@ double new_board[SIZE_OF_BOARD][SIZE_OF_BOARD];
 /// [RADIUS][RADIUS].
 double mask[SIZE_OF_MASK][SIZE_OF_MASK];
 
+/// Number of complex coefficients of a real 2D FFT of the board
+/// (FFTW r2c keeps only half of the last dimension: N x (N/2 + 1)).
+#define FFT_COMPLEX_SIZE (SIZE_OF_BOARD * (SIZE_OF_BOARD / 2 + 1))
+
+/// Real work buffer (row-major, N x N): input of the forward FFT and, after
+/// compute_potential_fft(), the potential U of every cell.
+double *fft_real = NULL;
+/// Complex work buffer: spectrum of the board.
+fftw_complex *fft_board = NULL;
+/// Spectrum of ::mask (padded to the board size), computed once.
+fftw_complex *fft_kernel = NULL;
+/// Plan: fft_real -> fft_board (forward, real to complex).
+fftw_plan plan_forward;
+/// Plan: fft_board -> fft_real (backward, complex to real, unnormalised).
+fftw_plan plan_backward;
+
 void init_board(void);
 void init_mask(void);
+void init_fft(void);
+void compute_potential_fft(void);
+void free_fft(void);
 int write_settings(const char *folder);
 int write_result(const char *folder, int last_iteration, double final_mass,
                  bool died_out, double seconds);
@@ -63,7 +83,10 @@ int write_result(const char *folder, int last_iteration, double final_mass,
  * @brief Runs the simulation and saves snapshots of the board to disk.
  *
  * For every cell the potential @f$U@f$ is computed as the convolution of
- * ::current_board with ::mask (edges wrap around). The cell is then updated as
+ * ::current_board with ::mask (edges wrap around). The convolution is done for
+ * the whole board at once with the FFT (see init_fft() and
+ * compute_potential_fft()) instead of summing over the mask for every cell.
+ * The cell is then updated as
  * @f[ A_{t+1} = \mathrm{clip}\big(A_t + \Delta t \cdot G(U),\ 0,\ 1\big),
  *     \qquad G(U) = 2\exp\!\Big(-\frac{(U-\mu)^2}{2\sigma^2}\Big) - 1 @f]
  * where @f$\mu@f$ = MU, @f$\sigma@f$ = SIGMA and @f$\Delta t@f$ =
@@ -85,6 +108,7 @@ int write_result(const char *folder, int last_iteration, double final_mass,
 int main() {
   init_board();
   init_mask();
+  init_fft();
   // Zapisujemy aktualny stan planszy jako obrazek PGM
   if (init_output(OUTPUT_FOLDER) != 0) {
     return 1; // błąd przy tworzeniu folderu
@@ -101,19 +125,14 @@ int main() {
 
   // Idąc po naszych iteracjach
   for (int iteration = 0; iteration <= NUMBER_OF_INTERATION; iteration++) {
+    // Potencjal U dla calej planszy naraz: U = IFFT( FFT(plansza) * FFT(maska)
+    // )
+    compute_potential_fft();
+
     // Przeprowadzamy aktualizację planszy
     for (int x = 0; x < SIZE_OF_BOARD; x++) {
       for (int y = 0; y < SIZE_OF_BOARD; y++) {
-        new_board[x][y] = 0.0;
-        double U = 0.0;
-        // Dla kazdje komorki liczymy jej nowa wartosc na podstawei  maski
-        for (int i = 0; i < SIZE_OF_MASK; i++) {
-          for (int j = 0; j < SIZE_OF_MASK; j++) {
-            int x_index = (x + i - RADIUS + SIZE_OF_BOARD) % SIZE_OF_BOARD;
-            int y_index = (y + j - RADIUS + SIZE_OF_BOARD) % SIZE_OF_BOARD;
-            U += current_board[x_index][y_index] * mask[i][j];
-          }
-        }
+        double U = fft_real[x * SIZE_OF_BOARD + y];
         double G = (2 * exp((-pow((U - MU), 2)) / (2 * SIGMA * SIGMA))) - 1;
         double before_cut_value = current_board[x][y] + DLUGOSC_KROKU * G;
         if (before_cut_value > 1.0) {
@@ -161,6 +180,7 @@ int main() {
                        std::chrono::steady_clock::now() - start_time)
                        .count();
   printf("Czas symulacji: %.2f s\n", seconds);
+  free_fft();
   if (write_result(OUTPUT_FOLDER, last_iteration, final_mass, died_out,
                    seconds) != 0) {
     return 1; // błąd przy dopisywaniu wyniku
@@ -241,6 +261,104 @@ void init_mask(void) {
       mask[i][j] = mask[i][j] / sum;
     }
   }
+}
+
+/**
+ * @brief Allocates the FFT buffers, creates the FFTW plans and computes the
+ *        spectrum of the kernel.
+ *
+ * The board wraps around, so the direct sum used by the plain CPU version
+ * @f[ U(x,y) = \sum_{i,j} A\big((x+i-R) \bmod N,\ (y+j-R) \bmod N\big)\,
+ *     M(i,j) @f]
+ * is a circular convolution of the board with a kernel @f$K@f$ of size
+ * N x N, where @f$K\big((R-i) \bmod N,\ (R-j) \bmod N\big) = M(i,j)@f$ (the
+ * mask is flipped and its centre moved to [0][0]). By the convolution theorem
+ * @f$U = \mathcal{F}^{-1}\big(\mathcal{F}(A)\cdot\mathcal{F}(K)\big)@f$, so
+ * @f$\mathcal{F}(K)@f$ is computed here once and reused every step.
+ *
+ * Must be called after init_mask(). Ends the program with exit code 1 if the
+ * buffers cannot be allocated.
+ */
+void init_fft(void) {
+  fft_real = fftw_alloc_real(SIZE_OF_BOARD * SIZE_OF_BOARD);
+  fft_board = fftw_alloc_complex(FFT_COMPLEX_SIZE);
+  fft_kernel = fftw_alloc_complex(FFT_COMPLEX_SIZE);
+  if (fft_real == NULL || fft_board == NULL || fft_kernel == NULL) {
+    printf("Nie moge zaalokowac pamieci na FFT\n");
+    exit(1);
+  }
+
+  // FFTW_MEASURE testuje kilka algorytmow i nadpisuje bufory, dlatego plany
+  // tworzymy PRZED wpisaniem do nich danych
+  plan_forward = fftw_plan_dft_r2c_2d(SIZE_OF_BOARD, SIZE_OF_BOARD, fft_real,
+                                      fft_board, FFTW_MEASURE);
+  plan_backward = fftw_plan_dft_c2r_2d(SIZE_OF_BOARD, SIZE_OF_BOARD, fft_board,
+                                       fft_real, FFTW_MEASURE);
+
+  // Maska wpisana w plansze N x N: odwrocona i ze srodkiem w [0][0]
+  for (int i = 0; i < SIZE_OF_BOARD * SIZE_OF_BOARD; i++) {
+    fft_real[i] = 0.0;
+  }
+  for (int i = 0; i < SIZE_OF_MASK; i++) {
+    for (int j = 0; j < SIZE_OF_MASK; j++) {
+      int x = ((RADIUS - i) % SIZE_OF_BOARD + SIZE_OF_BOARD) % SIZE_OF_BOARD;
+      int y = ((RADIUS - j) % SIZE_OF_BOARD + SIZE_OF_BOARD) % SIZE_OF_BOARD;
+      fft_real[x * SIZE_OF_BOARD + y] += mask[i][j];
+    }
+  }
+
+  // Widmo maski liczymy raz i zapamietujemy
+  fftw_execute(plan_forward);
+  for (int k = 0; k < FFT_COMPLEX_SIZE; k++) {
+    fft_kernel[k][0] = fft_board[k][0];
+    fft_kernel[k][1] = fft_board[k][1];
+  }
+}
+
+/**
+ * @brief Computes the potential U of every cell with the FFT.
+ *
+ * Copies ::current_board to ::fft_real, transforms it, multiplies the spectrum
+ * by ::fft_kernel (complex multiplication) and transforms it back. FFTW does
+ * not normalise the backward transform, so the result is divided by N*N.
+ * Afterwards `fft_real[x * SIZE_OF_BOARD + y]` holds U for cell [x][y] - the
+ * same value the direct sum over ::mask would give (up to rounding errors).
+ */
+void compute_potential_fft(void) {
+  for (int x = 0; x < SIZE_OF_BOARD; x++) {
+    for (int y = 0; y < SIZE_OF_BOARD; y++) {
+      fft_real[x * SIZE_OF_BOARD + y] = current_board[x][y];
+    }
+  }
+
+  fftw_execute(plan_forward);
+
+  // Mnozenie widm: (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+  for (int k = 0; k < FFT_COMPLEX_SIZE; k++) {
+    double a = fft_board[k][0], b = fft_board[k][1];
+    double c = fft_kernel[k][0], d = fft_kernel[k][1];
+    fft_board[k][0] = a * c - b * d;
+    fft_board[k][1] = a * d + b * c;
+  }
+
+  fftw_execute(plan_backward); // nadpisuje fft_board - nie jest juz potrzebne
+
+  const double scale = 1.0 / (SIZE_OF_BOARD * SIZE_OF_BOARD);
+  for (int i = 0; i < SIZE_OF_BOARD * SIZE_OF_BOARD; i++) {
+    fft_real[i] *= scale;
+  }
+}
+
+/**
+ * @brief Destroys the FFTW plans and frees the FFT buffers.
+ */
+void free_fft(void) {
+  fftw_destroy_plan(plan_forward);
+  fftw_destroy_plan(plan_backward);
+  fftw_free(fft_real);
+  fftw_free(fft_board);
+  fftw_free(fft_kernel);
+  fftw_cleanup();
 }
 
 /**
