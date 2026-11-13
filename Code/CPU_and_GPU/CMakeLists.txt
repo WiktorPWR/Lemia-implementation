@@ -49,3 +49,8 @@ target_compile_options(${PROJECT_NAME} PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:/W4 /utf-8>
     $<$<COMPILE_LANGUAGE:CUDA>:-Wno-deprecated-gpu-targets -Xcompiler=/utf-8>
 )
+
+# MSVC uznaje fopen/localtime za "niebezpieczne" i ostrzega (C4996).
+# Kod ma byc ten sam co w wersji g++, wiec wylaczamy te ostrzezenia zamiast
+# przepisywac go na fopen_s/localtime_s.
+target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)

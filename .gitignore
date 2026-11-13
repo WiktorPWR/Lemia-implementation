@@ -40,4 +40,13 @@ desktop.ini
 .DS_Store
 
 result/
-Code/Only_CPU/Results/
+# Wyniki symulacji w kazdej wersji (Only_CPU, Only_CPU_FFT, CPU_and_GPU, CPU_and_GPU_FFT)
+Code/*/Results/
+Runs/
+
+# GIF-y z make_gif.py (w kazdym folderze, takze w skopiowanych przebiegach)
+animation.gif
+
+# Python
+__pycache__/
+*.pyc

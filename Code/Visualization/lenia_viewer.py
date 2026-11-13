@@ -27,6 +27,8 @@ import sys
 import tkinter as tk
 from pathlib import Path
 
+# Only files named frame_<number>.pgm count as frames; anything else in the
+# folder (e.g. animation.gif from make_gif.py) is ignored.
 FRAME_PATTERN = re.compile(r"^frame_(\d+)\.pgm$", re.IGNORECASE)
 
 # Anchor colours of the colour map (black -> purple -> orange -> pale yellow),
@@ -136,6 +138,10 @@ class Viewer:
         self.info = tk.Label(root, font=("Consolas", 10), anchor="w")
         self.info.pack(fill=tk.X, pady=(6, 0))
 
+        # Red warning shown when the last frame is empty (life died out).
+        self.status = tk.Label(root, fg="#c0392b", font=("Consolas", 10, "bold"), anchor="w")
+        self.status.pack(fill=tk.X)
+
         self.slider = tk.Scale(root, orient=tk.HORIZONTAL, showvalue=False,
                                from_=0, to=0, command=self.on_slider)
         self.slider.pack(fill=tk.X)
@@ -198,9 +204,22 @@ class Viewer:
             self.pause()
             self.slider.config(to=0)
             self.info.config(text=f"No frame_*.pgm files in {self.folder.resolve()}")
+            self.status.config(text="")
             return
         self.slider.config(to=len(self.frames) - 1)
+        self.status.config(text=self.extinction_note())
         self.show(min(self.index, len(self.frames) - 1))
+
+    def extinction_note(self):
+        """Return a warning if the last frame is completely black, otherwise ""."""
+        number, path = self.frames[-1]
+        try:
+            _, _, pixels = read_pgm(path)
+        except (OSError, ValueError):
+            return ""
+        if pixels.count(0) == len(pixels):
+            return f"Life died out: the board is empty at iteration {number} (last frame)."
+        return ""
 
     def show(self, index):
         if not self.frames:

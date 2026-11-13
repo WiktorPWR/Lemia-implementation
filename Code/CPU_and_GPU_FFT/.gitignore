@@ -1,0 +1,19 @@
+# Wyniki budowania (CMake/Ninja/nvcc)
+build/
+
+# Pliki kompilacji, gdyby powstaly poza build/
+*.exe
+*.obj
+*.o
+*.lib
+*.exp
+*.pdb
+*.ilk
+
+# clangd (kopiowane przez build_and_run.bat / indeks)
+compile_commands.json
+.cache/
+
+# Lokalne ustawienia CMake / IDE
+CMakeUserPresets.json
+.vs/

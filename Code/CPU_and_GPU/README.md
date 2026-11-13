@@ -1,21 +1,21 @@
 # CPU_and_GPU
 
-Szkielet projektu C++ + CUDA budowanego przez **CMake**. Przykładowy moduł (`example_gpu`)
-dodaje dwie tablice na GPU. Służy tylko do sprawdzenia, że wszystko się kompiluje,
-i do podmiany na własny kod.
+Lenia w C++ + CUDA, budowana przez **CMake**. Na razie kod symulacji jest taki sam jak
+w `Only_CPU` (liczy tylko CPU); kod GPU dochodzi w plikach `.cu`.
 
 ## Struktura
 
 ```
 CPU_and_GPU/
 ├── CMakeLists.txt       ← opis projektu: pliki, headery, biblioteki, flagi
-├── build_and_run.bat    ← kompilacja + uruchomienie jednym poleceniem
+├── build_and_run.bat    ← kompilacja + uruchomienie (+ wizualizacja) jednym poleceniem
 ├── inc/                 ← headery (.h, .cuh)
-│   ├── example_gpu.h    ← interfejs GPU bez typów CUDA (można go dołączyć w .cpp)
+│   ├── pgm.h            ← zapis planszy jako obrazki PGM
 │   └── cuda_check.cuh   ← makro CUDA_CHECK, tylko dla plików .cu
 ├── scr/                 ← pliki źródłowe (.cpp, .cu)
-│   ├── main.cpp
-│   └── example_gpu.cu   ← kernel + funkcja, która go uruchamia
+│   ├── main.cpp         ← symulacja Lenii
+│   └── pgm.cpp
+├── Results/             ← klatki, settings.txt i animation.gif (tworzy się samo, nie trafia na GitHuba)
 └── build/               ← tworzy się samo, nie trafia na GitHuba
 ```
 
@@ -35,7 +35,12 @@ W terminalu (PowerShell / cmd / terminal w VS Code), w tym folderze:
 .\build_and_run.bat debug     # Debug: buduje i uruchamia (wolniejszy, do debugowania)
 .\build_and_run.bat build     # Release: tylko buduje
 .\build_and_run.bat clean     # usuwa folder build
+.\build_and_run.bat show      # buduje, czyści Results, uruchamia, robi GIF i otwiera okno z wynikami
+.\build_and_run.bat view      # samo okno z wynikami (bez liczenia od nowa)
+.\build_and_run.bat gif       # GIF z istniejących klatek (Results\animation.gif)
 ```
+
+Wizualizacja korzysta ze wspólnych skryptów w `..\Visualization` (Python, bez dodatkowych bibliotek).
 
 Gotowy program: `build\Release\CPU_and_GPU.exe` (albo `build\Debug\...`).
 Kolejne kompilacje są szybkie, bo budują się tylko zmienione pliki.
@@ -60,8 +65,8 @@ Który typ pliku wybrać:
 | `.cpp` | `cl.exe`   | zwykły C++ (logika, wczytywanie plików, `main`) |
 | `.cu`  | `nvcc`     | wszystko z CUDA: `__global__`, `<<<...>>>`, `cudaMalloc`, `cudaMemcpy` |
 
-Zasada z przykładu: **kod GPU siedzi w `.cu`**, a reszta programu woła go przez zwykłe funkcje
-zadeklarowane w headerze bez typów CUDA (tak jak `example_gpu.h` → `addGPU`).
+Zasada: **kod GPU siedzi w `.cu`**, a reszta programu woła go przez zwykłe funkcje
+zadeklarowane w headerze bez typów CUDA (jak `blur_gpu.h` → `blurGPU` w przykładzie poniżej).
 
 Przykład nowego modułu GPU:
 

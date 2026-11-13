@@ -4,6 +4,9 @@ REM Uzycie:  build_and_run.bat           - Release, buduje i uruchamia
 REM          build_and_run.bat debug     - Debug, buduje i uruchamia
 REM          build_and_run.bat build     - Release, tylko buduje
 REM          build_and_run.bat clean     - usuwa folder build
+REM          build_and_run.bat show      - Release: buduje, czysci Results, uruchamia, robi GIF, otwiera okno
+REM          build_and_run.bat view      - samo okno z wynikami (Results), bez liczenia od nowa
+REM          build_and_run.bat gif       - GIF z istniejacych klatek (Results\animation.gif)
 setlocal
 cd /d "%~dp0"
 
@@ -20,6 +23,14 @@ if /i "%~1"=="clean" (
   echo Usunieto folder build.
   exit /b 0
 )
+
+REM Wizualizacja (Python) - wspolna dla wszystkich wersji, w ..\Visualization.
+REM "Results" musi byc tym samym folderem co OUTPUT_FOLDER w main.cpp.
+set "VIS=%~dp0..\Visualization"
+if /i "%~1"=="view" ( python "%VIS%\lenia_viewer.py" Results & exit /b )
+if /i "%~1"=="gif"  ( python "%VIS%\make_gif.py" Results & exit /b )
+set SHOW=0
+if /i "%~1"=="show" set SHOW=1
 
 REM nvcc potrzebuje cl.exe, a CMake i Ninja sa w Visual Studio Build Tools.
 REM Jesli nie ma ich w PATH - ladujemy srodowisko VS (vcvars64.bat).
@@ -47,5 +58,12 @@ cmake --build "build\%CONFIG%"
 if errorlevel 1 ( echo. & echo Blad kompilacji. & exit /b 1 )
 
 if "%RUN%"=="0" exit /b 0
+REM show: stare klatki usuwamy PRZED symulacja, zeby nie mieszaly sie z nowymi
+if "%SHOW%"=="1" if exist Results rmdir /s /q Results
 echo.
 "build\%CONFIG%\CPU_and_GPU.exe"
+REM blad programu - nie robimy GIF-a ani okna (wymarcie zycia to NIE blad, kod 0)
+if errorlevel 1 exit /b 1
+if "%SHOW%"=="0" exit /b 0
+python "%VIS%\make_gif.py" Results
+python "%VIS%\lenia_viewer.py" Results
