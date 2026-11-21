@@ -1,6 +1,14 @@
 /**
  * @file main.cpp
- * @brief CPU implementation of Lenia, a continuous cellular automaton.
+ * @brief Multithreaded CPU implementation of Lenia (FFT + OpenMP), a
+ *        continuous cellular automaton.
+ *
+ * Version Only_CPU_FFT_threads: the convolution is done with FFTW (threaded
+ * plans, library fftw3_omp) and the per-cell loops (copying, spectrum
+ * multiplication, scaling, growth and update, mass) are split between threads
+ * with OpenMP (`#pragma omp parallel for`). The number of threads is given as
+ * the first program argument (default 1), e.g. `Only_CPU_FFT_threads.exe 4`,
+ * and the same number is used by OpenMP and by FFTW.
  *
  * The board is a SIZE_OF_BOARD x SIZE_OF_BOARD grid of cells with values in
  * [0, 1] whose edges wrap around (a torus). Every step convolves the board
@@ -73,10 +81,10 @@ fftw_plan plan_backward;
 
 void init_board(void);
 void init_mask(void);
-void init_fft(void);
+void init_fft(int threads);
 void compute_potential_fft(void);
 void free_fft(void);
-int write_settings(const char *folder);
+int write_settings(const char *folder, int threads);
 int write_result(const char *folder, int last_iteration, double final_mass,
                  bool died_out, double seconds);
 
@@ -106,16 +114,26 @@ int write_result(const char *folder, int last_iteration, double final_mass,
  * @return 0 on success (also when life died out early), 1 if the output folder,
  *         the settings file or a frame file could not be written.
  */
-int main() {
+int main(int argc, char *argv[]) {
   init_board();
   init_mask();
-  init_fft();
+  int threads = 0;
+  if (argc > 1) {
+    threads = atoi(argv[1]);
+    if (threads <= 0) {
+      threads = 1;
+    }
+  } else {
+    threads = 1;
+  }
+  omp_set_num_threads(threads);
+  init_fft(threads);
   // Zapisujemy aktualny stan planszy jako obrazek PGM
   if (init_output(OUTPUT_FOLDER) != 0) {
     return 1; // błąd przy tworzeniu folderu
   }
   // Nastawy zapisujemy przed symulacja - zostana nawet po przerwaniu programu
-  if (write_settings(OUTPUT_FOLDER) != 0) {
+  if (write_settings(OUTPUT_FOLDER, threads) != 0) {
     return 1; // błąd przy zapisie pliku z nastawami
   }
 
@@ -129,7 +147,7 @@ int main() {
     // Potencjal U dla calej planszy naraz: U = IFFT( FFT(plansza) * FFT(maska)
     // )
     compute_potential_fft();
-
+#pragma omp parallel for
     // Przeprowadzamy aktualizację planszy
     for (int x = 0; x < SIZE_OF_BOARD; x++) {
       for (int y = 0; y < SIZE_OF_BOARD; y++) {
@@ -149,6 +167,7 @@ int main() {
     // Przenosimy nowa plansze na stara i przy okazji liczymy mase (sume
     // komorek)
     double mass = 0.0;
+#pragma omp parallel for reduction(+ : mass)
     for (int i = 0; i < SIZE_OF_BOARD; i++) {
       for (int j = 0; j < SIZE_OF_BOARD; j++) {
         current_board[i][j] = new_board[i][j];
@@ -280,7 +299,9 @@ void init_mask(void) {
  * Must be called after init_mask(). Ends the program with exit code 1 if the
  * buffers cannot be allocated.
  */
-void init_fft(void) {
+void init_fft(int threads) {
+  fftw_init_threads();
+  fftw_plan_with_nthreads(threads); // plany FFT na tylu watkach co OpenMP
   fft_real = fftw_alloc_real(SIZE_OF_BOARD * SIZE_OF_BOARD);
   fft_board = fftw_alloc_complex(FFT_COMPLEX_SIZE);
   fft_kernel = fftw_alloc_complex(FFT_COMPLEX_SIZE);
@@ -326,6 +347,7 @@ void init_fft(void) {
  * same value the direct sum over ::mask would give (up to rounding errors).
  */
 void compute_potential_fft(void) {
+#pragma omp parallel for
   for (int x = 0; x < SIZE_OF_BOARD; x++) {
     for (int y = 0; y < SIZE_OF_BOARD; y++) {
       fft_real[x * SIZE_OF_BOARD + y] = current_board[x][y];
@@ -334,7 +356,8 @@ void compute_potential_fft(void) {
 
   fftw_execute(plan_forward);
 
-  // Mnozenie widm: (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+// Mnozenie widm: (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+#pragma omp parallel for
   for (int k = 0; k < FFT_COMPLEX_SIZE; k++) {
     double a = fft_board[k][0], b = fft_board[k][1];
     double c = fft_kernel[k][0], d = fft_kernel[k][1];
@@ -345,6 +368,7 @@ void compute_potential_fft(void) {
   fftw_execute(plan_backward); // nadpisuje fft_board - nie jest juz potrzebne
 
   const double scale = 1.0 / (SIZE_OF_BOARD * SIZE_OF_BOARD);
+#pragma omp parallel for
   for (int i = 0; i < SIZE_OF_BOARD * SIZE_OF_BOARD; i++) {
     fft_real[i] *= scale;
   }
@@ -359,7 +383,7 @@ void free_fft(void) {
   fftw_free(fft_real);
   fftw_free(fft_board);
   fftw_free(fft_kernel);
-  fftw_cleanup();
+  fftw_cleanup_threads();
 }
 
 /**
@@ -410,10 +434,11 @@ static FILE *open_settings_file(const char *folder, const char *mode) {
  * affects the run, grouped into INI-like sections, so a saved run can always
  * be reproduced. Call it before the simulation starts.
  *
- * @param folder Output folder (must already exist, see init_output()).
+ * @param folder  Output folder (must already exist, see init_output()).
+ * @param threads Number of threads used by OpenMP and FFTW.
  * @return 0 on success, 1 if the file could not be created.
  */
-int write_settings(const char *folder) {
+int write_settings(const char *folder, int threads) {
   FILE *f = open_settings_file(folder, "w");
   if (f == NULL) {
     return 1;
@@ -449,6 +474,9 @@ int write_settings(const char *folder) {
   fprintf(f, "\n[start]\n");
   fprintf(f, "SEED                 = %d\n", SEED);
   fprintf(f, "SIZE_OF_SQUARE       = %d\n", SIZE_OF_SQUARE);
+
+  fprintf(f, "\n[parallel]\n");
+  fprintf(f, "THREADS              = %d\n", threads);
 
   fclose(f);
   return 0;

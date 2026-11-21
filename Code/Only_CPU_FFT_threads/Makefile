@@ -15,7 +15,7 @@ MODE     ?= release
 
 INC_DIRS := inc              # foldery z headerami        (-I)
 LIB_DIRS :=                  # foldery z bibliotekami     (-L)
-LIBS     := fftw3            # nazwy bibliotek bez "lib"  (-l), np. sfml-graphics
+LIBS     := fftw3_omp fftw3            # nazwy bibliotek bez "lib"  (-l), np. sfml-graphics
                              # fftw3 = FFTW (double), z MSYS2: mingw-w64-ucrt-x86_64-fftw
 
 CXXFLAGS := -std=c++17 -Wall -Wextra -fopenmp

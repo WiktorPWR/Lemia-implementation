@@ -20,6 +20,7 @@ LIBS     := fftw3            # nazwy bibliotek bez "lib"  (-l), np. sfml-graphic
 
 CXXFLAGS := -std=c++17 -Wall -Wextra
 LDFLAGS  :=
+#define THREADS 4
 
 # Wizualizacja: RESULTS_DIR musi byc tym samym folderem co OUTPUT_FOLDER w main.cpp
 RESULTS_DIR := Results
