@@ -1,0 +1,32 @@
+# Lenia (Only_CPU_FFT_threads) - nastawy symulacji
+date                 = 2026-11-21 14:47:17
+
+[world]
+SIZE_OF_BOARD        = 256
+NUMBER_OF_INTERATION = 1000
+SAVE_EVERY           = 10
+EXTINCTION_MASS      = 1e-09
+
+[kernel]
+RADIUS               = 13
+NUMBER_OF_RINGS      = 1
+height_of_section    = {1}
+
+[growth]
+MU                   = 0.3
+SIGMA                = 0.04565995
+DLUGOSC_KROKU        = 0.1
+
+[start]
+SEED                 = 42
+SIZE_OF_SQUARE       = 40
+
+[parallel]
+THREADS              = 1
+
+[result]
+status               = survived
+last_iteration       = 1000
+final_mass           = 343.910
+time_seconds         = 4.53
+time_per_iter_ms     = 4.53
