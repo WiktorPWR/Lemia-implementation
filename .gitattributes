@@ -1,0 +1,43 @@
+# Git sam rozpoznaje pliki tekstowe i w repozytorium trzyma je zawsze z koncami
+# linii LF. Dzieki temu zmiana CRLF <-> LF (Windows / Linux / edytor) nie
+# pokazuje sie jako zmiana calego pliku.
+* text=auto eol=lf
+
+# Kod i pliki projektu - zawsze tekst z LF
+*.c        text eol=lf diff=cpp
+*.h        text eol=lf diff=cpp
+*.cpp      text eol=lf diff=cpp
+*.hpp      text eol=lf diff=cpp
+*.cu       text eol=lf diff=cpp
+*.cuh      text eol=lf diff=cpp
+*.py       text eol=lf diff=python
+*.md       text eol=lf diff=markdown
+*.tex      text eol=lf diff=tex
+*.txt      text eol=lf
+*.csv      text eol=lf
+*.json     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+Makefile   text eol=lf
+*.mk       text eol=lf
+*.cmake    text eol=lf
+CMakeLists.txt text eol=lf
+
+# Skrypty Windows musza miec CRLF, inaczej cmd moze je zle czytac
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+
+# Pliki binarne - bez zmian koncow linii i bez diffu tekstowego
+*.pgm      binary
+*.png      binary
+*.jpg      binary
+*.gif      binary
+*.mp4      binary
+*.pdf      binary
+*.exe      binary
+*.dll      binary
+*.o        binary
+*.obj      binary
+*.a        binary
+*.lib      binary
