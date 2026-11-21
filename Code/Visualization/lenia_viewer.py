@@ -2,9 +2,10 @@
 """
 Lenia frame viewer.
 
-Shows the PGM frames written by the simulation (frame_00000.pgm,
+Shows the PGM frames written by the simulation (FOLDER/frames/frame_00000.pgm,
 frame_00010.pgm, ...). Scrub through them with the slider or play them
-back as a frame-by-frame movie.
+back as a frame-by-frame movie. FOLDER is the results folder ("Results");
+a folder with the frames directly inside works too.
 
 Only the Python standard library (tkinter) is used, so nothing has to be
 installed with pip.
@@ -26,6 +27,10 @@ import re
 import sys
 import tkinter as tk
 from pathlib import Path
+
+# Subfolder of the results folder with the frames (must match FRAMES_FOLDER in
+# the simulations' main.cpp).
+FRAMES_SUBFOLDER = "frames"
 
 # Only files named frame_<number>.pgm count as frames; anything else in the
 # folder (e.g. animation.gif from make_gif.py) is ignored.
@@ -60,8 +65,24 @@ GREY_LUT = (bytes(range(256)),) * 3
 COLOUR_LUT = build_lut(COLOUR_ANCHORS)
 
 
+def frames_folder(folder):
+    """Return the folder that holds the frames of a results folder.
+
+    The simulations write the frames to FOLDER/frames (next to settings.txt and
+    profile.csv). If that subfolder does not exist, FOLDER itself is used, so
+    older results (frames directly in FOLDER) and a path given straight to the
+    frames subfolder still work.
+    """
+    sub = folder / FRAMES_SUBFOLDER
+    return sub if sub.is_dir() else folder
+
+
 def find_frames(folder):
-    """Return [(number, path), ...] of all frame_*.pgm files, sorted by number."""
+    """Return [(number, path), ...] of all frame_*.pgm files, sorted by number.
+
+    FOLDER is the results folder; the frames are looked up with frames_folder().
+    """
+    folder = frames_folder(folder)
     if not folder.is_dir():
         return []
     frames = []
@@ -203,7 +224,8 @@ class Viewer:
         if not self.frames:
             self.pause()
             self.slider.config(to=0)
-            self.info.config(text=f"No frame_*.pgm files in {self.folder.resolve()}")
+            self.info.config(text=f"No frame_*.pgm files in "
+                                  f"{frames_folder(self.folder).resolve()}")
             self.status.config(text="")
             return
         self.slider.config(to=len(self.frames) - 1)
@@ -319,7 +341,8 @@ class Viewer:
 def main():
     parser = argparse.ArgumentParser(description="Browse and play Lenia PGM frames.")
     parser.add_argument("folder", nargs="?", default="Results",
-                        help="folder with frame_*.pgm files (default: Results)")
+                        help="results folder; its frames/ subfolder holds frame_*.pgm "
+                             "(default: Results)")
     parser.add_argument("--fps", type=int, default=10,
                         help="playback speed in frames per second (default: 10)")
     parser.add_argument("--zoom", type=int, default=0,

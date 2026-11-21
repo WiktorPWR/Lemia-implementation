@@ -6,7 +6,7 @@
  * [0, 1] whose edges wrap around (a torus). Every step convolves the board
  * with a ring-shaped kernel (::mask), passes the result through a Gaussian
  * growth function and adds a small part of it to every cell. Every
- * SAVE_EVERY-th step is saved as a PGM image to ::OUTPUT_FOLDER, together with
+ * SAVE_EVERY-th step is saved as a PGM image to ::FRAMES_FOLDER, together with
  * a SETTINGS_FILE describing the parameters and the result of the run.
  */
 #include "pgm.h"
@@ -25,8 +25,11 @@
 #define SIZE_OF_MASK (RADIUS * 2 + 1)
 #define SIZE_OF_SQUARE 40
 
-/// Folder for the PGM frames, relative to the working directory.
+/// Folder for the settings and result files, relative to the working
+/// directory.
 const char *OUTPUT_FOLDER = "Results/";
+/// Subfolder of ::OUTPUT_FOLDER for the PGM frames (keeps Results/ tidy).
+const char *FRAMES_FOLDER = "Results/frames/";
 
 #define SIGMA 0.04565995
 #define MU 0.3
@@ -109,8 +112,8 @@ int main() {
   init_board();
   init_mask();
   init_fft();
-  // Zapisujemy aktualny stan planszy jako obrazek PGM
-  if (init_output(OUTPUT_FOLDER) != 0) {
+  // Tworzymy folder na klatki (razem z jego rodzicem OUTPUT_FOLDER)
+  if (init_output(FRAMES_FOLDER) != 0) {
     return 1; // błąd przy tworzeniu folderu
   }
   // Nastawy zapisujemy przed symulacja - zostana nawet po przerwaniu programu
@@ -163,7 +166,7 @@ int main() {
     // byla zapisana
     if (iteration % SAVE_EVERY == 0 || extinct) {
       printf("iteracja %4d   masa %.1f\n", iteration, mass);
-      if (save_board_frame(OUTPUT_FOLDER, iteration, &current_board[0][0],
+      if (save_board_frame(FRAMES_FOLDER, iteration, &current_board[0][0],
                            SIZE_OF_BOARD) != 0) {
         return 1; // błąd przy zapisie pliku
       }

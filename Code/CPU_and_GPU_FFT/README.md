@@ -15,7 +15,8 @@ CPU_and_GPU_FFT/
 ├── scr/                 ← pliki źródłowe (.cpp, .cu)
 │   ├── main.cpp         ← symulacja Lenii
 │   └── pgm.cpp
-├── Results/             ← klatki, settings.txt i animation.gif (tworzy się samo, nie trafia na GitHuba)
+├── Results/             ← settings.txt i animation.gif (tworzy się samo, nie trafia na GitHuba)
+│   └── frames/          ← klatki frame_*.pgm
 └── build/               ← tworzy się samo, nie trafia na GitHuba
 ```
 

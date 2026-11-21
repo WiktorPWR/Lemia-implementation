@@ -2,8 +2,10 @@
 """
 Lenia GIF maker.
 
-Turns the PGM frames written by the simulation (frame_00000.pgm, ...) into
-one looping animated GIF, saved by default as FOLDER/animation.gif.
+Turns the PGM frames written by the simulation (FOLDER/frames/frame_00000.pgm,
+...) into one looping animated GIF, saved by default as FOLDER/animation.gif.
+FOLDER is the results folder ("Results"); a folder with the frames directly
+inside works too.
 
 Only the Python standard library is used: the GIF (with its LZW compression)
 is written by hand, so nothing has to be installed with pip. The grey value
@@ -19,7 +21,7 @@ import struct
 import sys
 from pathlib import Path
 
-from lenia_viewer import COLOUR_LUT, GREY_LUT, find_frames, read_pgm
+from lenia_viewer import COLOUR_LUT, GREY_LUT, find_frames, frames_folder, read_pgm
 
 GIF_NAME = "animation.gif"
 MAX_CODE = 4095  # GIF codes are at most 12 bits
@@ -113,7 +115,8 @@ def write_gif(path, width, height, frames, lut, fps):
 def main():
     parser = argparse.ArgumentParser(description="Make an animated GIF from Lenia PGM frames.")
     parser.add_argument("folder", nargs="?", default="Results",
-                        help="folder with frame_*.pgm files (default: Results)")
+                        help="results folder; its frames/ subfolder holds frame_*.pgm "
+                             "(default: Results)")
     parser.add_argument("--fps", type=int, default=10,
                         help="frames per second in the GIF (default: 10, max 50)")
     parser.add_argument("--grey", action="store_true",
@@ -125,7 +128,8 @@ def main():
     folder = Path(args.folder)
     frames = find_frames(folder)
     if not frames:
-        print(f"No frame_*.pgm files in {folder.resolve()}", file=sys.stderr)
+        print(f"No frame_*.pgm files in {frames_folder(folder).resolve()}",
+              file=sys.stderr)
         return 1
 
     width, height, _ = read_pgm(frames[0][1])

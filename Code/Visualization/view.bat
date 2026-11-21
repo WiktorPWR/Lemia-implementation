@@ -1,5 +1,6 @@
 @echo off
-REM Otwiera przegladarke klatek Lenia dla podanego folderu z plikami frame_*.pgm
+REM Otwiera przegladarke klatek Lenia dla podanego folderu z wynikami (klatki
+REM frame_*.pgm sa w jego podfolderze frames)
 REM Uzycie:  view.bat FOLDER [--fps N] [--zoom N]
 REM          view.bat                 - bez argumentu otwiera folder "Results" w biezacym katalogu
 REM Mozna tez przeciagnac folder z wynikami na ten plik w Eksploratorze.
