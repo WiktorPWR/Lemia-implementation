@@ -17,7 +17,7 @@
 #include <ctime>
 #include <fftw3.h>
 
-#define SIZE_OF_BOARD 256
+#define SIZE_OF_BOARD 512
 #define RADIUS 13
 #define SEED 42
 #define NUMBER_OF_INTERATION 1000
@@ -112,8 +112,8 @@ fftw_plan plan_backward;
 /// Names of the items, in the order of the item indices (used in the keys of
 /// the [profile] section; they match the column names of PROFILE_FILE).
 static const char *const ITEM_NAMES[NUMBER_OF_ITEMS] = {
-    "potential",   "growth",      "copy_mass",   "io",       "pot_copy",
-    "pot_fft_fwd", "pot_mult",    "pot_fft_bwd", "pot_scale"};
+    "potential",   "growth",   "copy_mass",   "io",       "pot_copy",
+    "pot_fft_fwd", "pot_mult", "pot_fft_bwd", "pot_scale"};
 
 /// Statistics of one item over all measured iterations (after warm-up).
 struct SectionStats {
@@ -131,9 +131,12 @@ struct SectionStats {
 
 /// Statistics of all items (sections and subsections).
 struct Profile {
-  int count;       ///< number of iterations in the statistics (after warm-up)
-  double init_ms;  ///< time of the initialisation (kernel and FFT plans) [ms]
+  int count;      ///< number of iterations in the statistics (after warm-up)
+  double init_ms; ///< time of the initialisation (kernel and FFT plans) [ms]
   SectionStats item[NUMBER_OF_ITEMS];
+  double run_ms[NUMBER_OF_ITEMS]; ///< sum of the times over ALL iterations,
+                                  ///< warm-up included [ms] (for the
+                                  ///< [time_share] section)
 };
 
 /// Times of the steps of compute_potential_fft() in one call [ms].
@@ -159,6 +162,7 @@ int profile_record(Profile *profile, FILE *csv, int iteration,
                    const double *ms);
 double profile_compute_sum_ms(const Profile *profile);
 void write_profile_section(FILE *f, const Profile *profile);
+void write_time_share_section(FILE *f, const Profile *profile, double seconds);
 int write_settings(const char *folder);
 int write_result(const char *folder, int last_iteration, double final_mass,
                  bool died_out, double seconds, const Profile *profile);
@@ -273,6 +277,11 @@ int main() {
     }
     ms[SECTION_IO] = ms_since(section_start);
 
+    // Czas calego przebiegu (razem z rozgrzewka) - do udzialu w time_seconds
+    for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+      profile.run_ms[s] += ms[s];
+    }
+
     // Rozgrzewka nie trafia do statystyk ani do pliku z profilem
     if (iteration >= WARMUP_ITERATIONS &&
         profile_record(&profile, profile_file, iteration, ms) != 0) {
@@ -385,6 +394,7 @@ void profile_init(Profile *profile) {
   profile->init_ms = 0.0;
   for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
     profile->item[s] = SectionStats();
+    profile->run_ms[s] = 0.0;
   }
 }
 
@@ -760,7 +770,8 @@ int write_settings(const char *folder) {
  *
  * Adds a [result] section: whether life survived, the last computed
  * iteration, the final mass and the run time (total and per iteration),
- * followed by the [profile] section (see write_profile_section()).
+ * followed by the [profile] section (see write_profile_section()) and the
+ * [time_share] section (see write_time_share_section()).
  * If this section is missing, the run was interrupted.
  *
  * @param folder         Output folder with the file from write_settings().
@@ -786,6 +797,7 @@ int write_result(const char *folder, int last_iteration, double final_mass,
   fprintf(f, "time_per_iter_ms     = %.2f\n",
           1000.0 * seconds / (last_iteration + 1));
   write_profile_section(f, profile);
+  write_time_share_section(f, profile, seconds);
   fclose(f);
   return 0;
 }
@@ -905,9 +917,58 @@ void write_profile_section(FILE *f, const Profile *profile) {
   fprintf(f, "\n");
   print_profile_key(f, "", "cells_per_second");
   if (compute_sum_ms > 0.0) {
-    fprintf(f, "%.0f\n", (double)SIZE_OF_BOARD * SIZE_OF_BOARD * profile->count /
-                             (compute_sum_ms / 1000.0));
+    fprintf(f, "%.0f\n",
+            (double)SIZE_OF_BOARD * SIZE_OF_BOARD * profile->count /
+                (compute_sum_ms / 1000.0));
   } else {
     fprintf(f, "n/a\n");
   }
+}
+
+/**
+ * @brief Appends the [time_share] section: share of every section in the
+ *        whole run time (time_seconds) [%].
+ *
+ * Computed once, after the last iteration. Unlike _share_pct in [profile]
+ * (only iterations after warm-up, divided by the sum of the sections), it uses
+ * the times of ALL iterations, warm-up included, divided by the wall time of
+ * the whole simulation loop (time_seconds). untimed_run_pct is the part of
+ * time_seconds not covered by any section (writing PROFILE_FILE, the loop
+ * itself, the timers).
+ *
+ * @param f       Open settings file (appended to).
+ * @param profile Timing statistics of the run (run_ms).
+ * @param seconds Run time of the simulation loop, as time_seconds in [result].
+ */
+void write_time_share_section(FILE *f, const Profile *profile, double seconds) {
+  double run_total_ms = seconds * 1000.0;
+  fprintf(f, "\n[time_share]\n");
+  print_profile_key(f, "", "run_total_ms");
+  fprintf(f, "%.3f\n", run_total_ms);
+  if (run_total_ms <= 0.0) {
+    print_profile_key(f, "", "note");
+    fprintf(f, "run time is 0 - no shares\n");
+    return;
+  }
+
+  double sections_ms = 0.0; // suma sekcji 1-4 (podsekcje sa juz w sekcji 1)
+  for (int s = 0; s < NUMBER_OF_SECTIONS; s++) {
+    sections_ms += profile->run_ms[s];
+  }
+
+  // Laczny czas kazdej sekcji w calym przebiegu
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_run_ms");
+    fprintf(f, "%.3f\n", profile->run_ms[s]);
+  }
+
+  // Udzial w calym czasie: czas sekcji / time_seconds
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_run_pct");
+    fprintf(f, "%.4f\n", profile->run_ms[s] / run_total_ms * 100.0);
+  }
+  print_profile_key(f, "", "untimed_run_pct");
+  fprintf(f, "%.4f\n", (run_total_ms - sections_ms) / run_total_ms * 100.0);
 }

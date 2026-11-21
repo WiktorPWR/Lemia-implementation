@@ -43,7 +43,7 @@ result/
 # Wyniki symulacji w kazdej wersji (Only_CPU, Only_CPU_FFT, CPU_and_GPU, CPU_and_GPU_FFT)
 Code/*/Results/
 Runs/
-
+bench/
 # GIF-y z make_gif.py (w kazdym folderze, takze w skopiowanych przebiegach)
 animation.gif
 

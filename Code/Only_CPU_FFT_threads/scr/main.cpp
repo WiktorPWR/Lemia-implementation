@@ -26,7 +26,7 @@
 #include <fftw3.h>
 #include <omp.h>
 
-#define SIZE_OF_BOARD 256
+#define SIZE_OF_BOARD 1024
 #define RADIUS 13
 #define SEED 42
 #define NUMBER_OF_INTERATION 1000
@@ -121,8 +121,8 @@ fftw_plan plan_backward;
 /// Names of the items, in the order of the item indices (used in the keys of
 /// the [profile] section; they match the column names of PROFILE_FILE).
 static const char *const ITEM_NAMES[NUMBER_OF_ITEMS] = {
-    "potential",   "growth",      "copy_mass",   "io",       "pot_copy",
-    "pot_fft_fwd", "pot_mult",    "pot_fft_bwd", "pot_scale"};
+    "potential",   "growth",   "copy_mass",   "io",       "pot_copy",
+    "pot_fft_fwd", "pot_mult", "pot_fft_bwd", "pot_scale"};
 
 /// Statistics of one item over all measured iterations (after warm-up).
 struct SectionStats {
@@ -140,11 +140,12 @@ struct SectionStats {
 
 /// Statistics of all items (sections and subsections).
 struct Profile {
-  int count;       ///< number of iterations in the statistics (after warm-up)
-  double init_ms;  ///< time of the initialisation (kernel and FFT plans) [ms]
+  int count;      ///< number of iterations in the statistics (after warm-up)
+  double init_ms; ///< time of the initialisation (kernel and FFT plans) [ms]
   SectionStats item[NUMBER_OF_ITEMS];
-  double run_ms[NUMBER_OF_ITEMS]; ///< sum of the times over ALL iterations, warm-up
-                     ///< included [ms] (for the [time_share] section)
+  double run_ms[NUMBER_OF_ITEMS]; ///< sum of the times over ALL iterations,
+                                  ///< warm-up included [ms] (for the
+                                  ///< [time_share] section)
 };
 
 /// Times of the steps of compute_potential_fft() in one call [ms].
@@ -951,8 +952,9 @@ void write_profile_section(FILE *f, const Profile *profile) {
   fprintf(f, "\n");
   print_profile_key(f, "", "cells_per_second");
   if (compute_sum_ms > 0.0) {
-    fprintf(f, "%.0f\n", (double)SIZE_OF_BOARD * SIZE_OF_BOARD * profile->count /
-                             (compute_sum_ms / 1000.0));
+    fprintf(f, "%.0f\n",
+            (double)SIZE_OF_BOARD * SIZE_OF_BOARD * profile->count /
+                (compute_sum_ms / 1000.0));
   } else {
     fprintf(f, "n/a\n");
   }

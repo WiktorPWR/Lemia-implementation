@@ -8,8 +8,10 @@
 #          mingw32-make clean        - usuwa folder build
 #          mingw32-make clean_results - usuwa folder z klatkami (Results)
 #          mingw32-make run THREADS=4 - uruchomienie na 4 watkach (domyslnie 1)
+#          mingw32-make bench_summary - samo zestawienie bench/settings.txt z bench/runs/
 #          mingw32-make bench        - pomiary dla 1, 2, 4, 8 watkow, po 5 razy;
-#                                      settings.txt i profile.csv z kazdego przebiegu trafiaja do bench/
+#                                      settings.txt i profile.csv z kazdego przebiegu trafiaja do bench/runs/,
+#                                      a srednie ze wszystkich przebiegow do bench/settings.txt
 
 # ================= Ustawienia (to zmieniasz) =================
 TARGET   := Only_CPU_FFT_threads
@@ -22,6 +24,7 @@ THREADS  ?= 1                # liczba watkow dla run/show:  mingw32-make run THR
 BENCH_THREADS ?= 1 2 4 8
 BENCH_RUNS    ?= 1 2 3 4 5
 BENCH_DIR     := bench
+BENCH_RUNS_DIR := $(BENCH_DIR)/runs
 
 INC_DIRS := inc              # foldery z headerami        (-I)
 LIB_DIRS :=                  # foldery z bibliotekami     (-L)
@@ -35,6 +38,7 @@ LDFLAGS  := -fopenmp
 RESULTS_DIR := Results
 VIEWER      := ../Visualization/lenia_viewer.py
 GIF_MAKER   := ../Visualization/make_gif.py
+BENCH_SUMMARY := ../Visualization/bench_summary.py
 
 ifeq ($(MODE),debug)
   CXXFLAGS += -O0 -g
@@ -84,7 +88,7 @@ endif
 RUN = $(RUN_EXE) $(THREADS)
 
 # ================= Reguly =================
-.PHONY: all run clean clean_results show view gif bench
+.PHONY: all run clean clean_results show view gif bench bench_summary
 
 all: $(EXE) compile_commands.json
 
@@ -132,22 +136,28 @@ clean_results:
 
 # bench: kompilacja -> dla kazdej liczby watkow i kazdego powtorzenia:
 # uruchomienie programu i skopiowanie Results/settings.txt do
-# bench/settings_<watki>t_run<nr>.txt oraz Results/profile.csv do
-# bench/profile_<watki>t_run<nr>.csv. Czasy sa w sekcjach [result] i [profile]
+# bench/runs/settings_<watki>t_run<nr>.txt oraz Results/profile.csv do
+# bench/runs/profile_<watki>t_run<nr>.csv. Na koncu bench_summary.py liczy
+# srednie ze wszystkich przebiegow i zapisuje je do bench/settings.txt. Czasy sa w sekcjach [result] i [profile]
 # plikow settings, a pomiary z kazdej iteracji w plikach profile.
 # BENCH_ONE to "szablon" trzech komend: $(1) = liczba watkow, $(2) = nr powtorzenia.
 # Pusta linia przed endef jest potrzebna - dzieki niej kazdy przebieg trafia
 # do osobnych linii przepisu.
 define BENCH_ONE
 	$(RUN_EXE) $(1)
-	$(call COPYFILE,$(RESULTS_DIR)/settings.txt,$(BENCH_DIR)/settings_$(1)t_run$(2).txt)
-	$(call COPYFILE,$(RESULTS_DIR)/profile.csv,$(BENCH_DIR)/profile_$(1)t_run$(2).csv)
+	$(call COPYFILE,$(RESULTS_DIR)/settings.txt,$(BENCH_RUNS_DIR)/settings_$(1)t_run$(2).txt)
+	$(call COPYFILE,$(RESULTS_DIR)/profile.csv,$(BENCH_RUNS_DIR)/profile_$(1)t_run$(2).csv)
 
 endef
 
 bench: all
-	$(call mkdir,$(BENCH_DIR))
+	$(call mkdir,$(BENCH_RUNS_DIR))
 	$(foreach t,$(BENCH_THREADS),$(foreach r,$(BENCH_RUNS),$(call BENCH_ONE,$t,$r)))
+	$(PYTHON) $(BENCH_SUMMARY) $(BENCH_DIR)
 	@echo Pomiary zapisane w folderze $(BENCH_DIR)
+
+# samo zestawienie z istniejacych plikow w bench/runs (bez liczenia od nowa)
+bench_summary:
+	$(PYTHON) $(BENCH_SUMMARY) $(BENCH_DIR)
 
 -include $(DEPS)
