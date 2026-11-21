@@ -55,6 +55,42 @@ const char *FRAMES_FOLDER = "Results/frames/";
 /// Text file with the settings and the result, written to ::OUTPUT_FOLDER.
 #define SETTINGS_FILE "settings.txt"
 
+/// CSV file with per-iteration timings, written to ::OUTPUT_FOLDER.
+#define PROFILE_FILE "profile.csv"
+
+/// Header of PROFILE_FILE: the sections, total_ms, their shares, then the
+/// subsections of the potential (FFT steps) and their shares.
+#define PROFILE_CSV_HEADER                                                     \
+  "iteration,potential_ms,growth_ms,copy_mass_ms,io_ms,total_ms,"              \
+  "potential_pct,growth_pct,copy_mass_pct,io_pct,"                             \
+  "pot_copy_ms,pot_fft_fwd_ms,pot_mult_ms,pot_fft_bwd_ms,pot_scale_ms,"        \
+  "pot_copy_pct,pot_fft_fwd_pct,pot_mult_pct,pot_fft_bwd_pct,pot_scale_pct"
+
+/// The first WARMUP_ITERATIONS iterations are computed normally, but they are
+/// not written to PROFILE_FILE and not included in the statistics.
+#define WARMUP_ITERATIONS 10
+
+/// Number of timed sections of one iteration.
+#define NUMBER_OF_SECTIONS 4
+/// Number of subsections of the potential section (steps of the FFT).
+#define NUMBER_OF_SUBSECTIONS 5
+/// Number of timed items: the sections first, then the subsections.
+#define NUMBER_OF_ITEMS (NUMBER_OF_SECTIONS + NUMBER_OF_SUBSECTIONS)
+/// Item indices (also the order of columns in PROFILE_FILE). Items
+/// 0 .. NUMBER_OF_SECTIONS - 1 are the sections.
+#define SECTION_POTENTIAL 0 ///< 1: potential U (sum of 1a-1e)
+#define SECTION_GROWTH 1    ///< 2: growth function and board update
+#define SECTION_COPY_MASS 2 ///< 3: copy new_board -> current_board and mass
+#define SECTION_IO 3        ///< 4: printf and saving the PGM frame
+/// Subsections of the potential section.
+#define ITEM_POT_COPY 4    ///< 1a: copy current_board -> fft_real
+#define ITEM_POT_FFT_FWD 5 ///< 1b: forward FFT
+#define ITEM_POT_MULT 6    ///< 1c: multiplication of the spectra
+#define ITEM_POT_FFT_BWD 7 ///< 1d: backward FFT
+#define ITEM_POT_SCALE 8   ///< 1e: scaling by 1/N^2
+/// Sections 0 .. NUMBER_OF_COMPUTE_SECTIONS - 1 are pure computation (no I/O).
+#define NUMBER_OF_COMPUTE_SECTIONS 3
+
 /// Height (peak weight) of each kernel ring, from the centre outwards.
 const double height_of_section[NUMBER_OF_RINGS] = {
     1.0}; // to  jest wysokosc pierscienia
@@ -82,44 +118,109 @@ fftw_plan plan_forward;
 /// Plan: fft_board -> fft_real (backward, complex to real, unnormalised).
 fftw_plan plan_backward;
 
+/// Names of the items, in the order of the item indices (used in the keys of
+/// the [profile] section; they match the column names of PROFILE_FILE).
+static const char *const ITEM_NAMES[NUMBER_OF_ITEMS] = {
+    "potential",   "growth",      "copy_mass",   "io",       "pot_copy",
+    "pot_fft_fwd", "pot_mult",    "pot_fft_bwd", "pot_scale"};
+
+/// Statistics of one item over all measured iterations (after warm-up).
+struct SectionStats {
+  double sum_ms;    ///< sum of the item time [ms]
+  double min_ms;    ///< shortest time of the item [ms]
+  int min_ms_iter;  ///< iteration in which min_ms occurred
+  double max_ms;    ///< longest time of the item [ms]
+  int max_ms_iter;  ///< iteration in which max_ms occurred
+  double pct_sum;   ///< sum of the per-iteration shares [%] (for the mean)
+  double pct_min;   ///< smallest per-iteration share [%]
+  int pct_min_iter; ///< iteration in which pct_min occurred
+  double pct_max;   ///< largest per-iteration share [%]
+  int pct_max_iter; ///< iteration in which pct_max occurred
+};
+
+/// Statistics of all items (sections and subsections).
+struct Profile {
+  int count;       ///< number of iterations in the statistics (after warm-up)
+  double init_ms;  ///< time of the initialisation (kernel and FFT plans) [ms]
+  SectionStats item[NUMBER_OF_ITEMS];
+};
+
+/// Times of the steps of compute_potential_fft() in one call [ms].
+struct PotentialTimes {
+  double copy_ms;    ///< 1a: copy current_board -> fft_real
+  double fft_fwd_ms; ///< 1b: forward FFT
+  double mult_ms;    ///< 1c: multiplication of the spectra
+  double fft_bwd_ms; ///< 1d: backward FFT
+  double scale_ms;   ///< 1e: scaling by 1/N^2
+};
+
 void init_board(void);
 void init_mask(void);
 void init_fft(int threads);
-void compute_potential_fft(void);
+void compute_potential_fft(PotentialTimes *t);
+void compute_growth(void);
+double copy_board_and_mass(void);
 void free_fft(void);
+double ms_since(std::chrono::steady_clock::time_point since);
+void potential_times_to_items(const PotentialTimes *t, double *ms);
+void profile_init(Profile *profile);
+int profile_record(Profile *profile, FILE *csv, int iteration,
+                   const double *ms);
+double profile_compute_sum_ms(const Profile *profile);
+void write_profile_section(FILE *f, const Profile *profile);
 int write_settings(const char *folder, int threads);
 int write_result(const char *folder, int last_iteration, double final_mass,
-                 bool died_out, double seconds);
+                 bool died_out, double seconds, const Profile *profile);
 
 /**
- * @brief Runs the simulation and saves snapshots of the board to disk.
+ * @brief Runs the simulation, saves snapshots of the board and profiles it.
  *
  * For every cell the potential @f$U@f$ is computed as the convolution of
  * ::current_board with ::mask (edges wrap around). The convolution is done for
  * the whole board at once with the FFT (see init_fft() and
  * compute_potential_fft()) instead of summing over the mask for every cell.
- * The cell is then updated as
+ * The cell is then updated (compute_growth()) as
  * @f[ A_{t+1} = \mathrm{clip}\big(A_t + \Delta t \cdot G(U),\ 0,\ 1\big),
  *     \qquad G(U) = 2\exp\!\Big(-\frac{(U-\mu)^2}{2\sigma^2}\Big) - 1 @f]
  * where @f$\mu@f$ = MU, @f$\sigma@f$ = SIGMA and @f$\Delta t@f$ =
  * DLUGOSC_KROKU. The new values go to ::new_board first, so every cell is
  * updated from the same old state, and are copied back to ::current_board after
- * the step.
+ * the step (copy_board_and_mass()).
  *
  * After every step the total mass of the board is computed. If it drops below
  * EXTINCTION_MASS, the last (empty) frame is saved and the simulation stops
  * early.
  *
+ * Profiling: every iteration measures four sections (potential, growth, copy +
+ * mass, I/O). The potential section is the sum of five subsections measured
+ * inside compute_potential_fft() (copy, forward FFT, spectrum multiplication,
+ * backward FFT, scaling). Every (sub)section has one timer, started and read
+ * outside any loop over cells, and only in the main thread outside the
+ * parallel regions (every `omp parallel for` ends with a barrier and
+ * fftw_execute() returns after all its threads finished, so the time read
+ * afterwards is correct). The initialisation (kernel and FFT plans) is timed
+ * separately. Iterations after the first WARMUP_ITERATIONS are written to
+ * PROFILE_FILE (one line per iteration) and summed up in a Profile, which goes
+ * to the [profile] section of SETTINGS_FILE.
+ *
  * The settings are written to SETTINGS_FILE before the first step (so they
- * are kept even if the program is interrupted); the result and the run time
- * are appended after the last step.
+ * are kept even if the program is interrupted); the result, the profile and
+ * the run time are appended after the last step.
  *
  * @return 0 on success (also when life died out early), 1 if the output folder,
- *         the settings file or a frame file could not be written.
+ *         the settings file, the profile file or a frame file could not be
+ *         written.
  */
 int main(int argc, char *argv[]) {
+  Profile profile;
+  profile_init(&profile);
+
   init_board();
+  // Inicjalizacja (maska + plany FFTW) mierzona osobno - nie wchodzi do
+  // statystyk krokow
+  auto init_start = std::chrono::steady_clock::now();
   init_mask();
+  double init_ms = ms_since(init_start);
   int threads = 0;
   if (argc > 1) {
     threads = atoi(argv[1]);
@@ -130,7 +231,9 @@ int main(int argc, char *argv[]) {
     threads = 1;
   }
   omp_set_num_threads(threads);
+  init_start = std::chrono::steady_clock::now();
   init_fft(threads);
+  profile.init_ms = init_ms + ms_since(init_start);
   // Tworzymy folder na klatki (razem z jego rodzicem OUTPUT_FOLDER)
   if (init_output(FRAMES_FOLDER) != 0) {
     return 1; // błąd przy tworzeniu folderu
@@ -140,6 +243,17 @@ int main(int argc, char *argv[]) {
     return 1; // błąd przy zapisie pliku z nastawami
   }
 
+  // Plik z pomiarami otwieramy raz, przed petla; zamykamy po niej
+  char profile_path[512];
+  snprintf(profile_path, sizeof(profile_path), "%s/%s", OUTPUT_FOLDER,
+           PROFILE_FILE);
+  FILE *profile_file = fopen(profile_path, "w");
+  if (profile_file == NULL) {
+    printf("Nie moge otworzyc pliku %s\n", profile_path);
+    return 1; // błąd przy otwieraniu pliku z profilem
+  }
+  fprintf(profile_file, PROFILE_CSV_HEADER "\n");
+
   auto start_time = std::chrono::steady_clock::now();
   double final_mass = 0.0; // masa po ostatnim kroku (do pliku z wynikiem)
   int last_iteration = 0;
@@ -147,49 +261,47 @@ int main(int argc, char *argv[]) {
 
   // Idąc po naszych iteracjach
   for (int iteration = 0; iteration <= NUMBER_OF_INTERATION; iteration++) {
-    // Potencjal U dla calej planszy naraz: U = IFFT( FFT(plansza) * FFT(maska)
-    // )
-    compute_potential_fft();
-#pragma omp parallel for
-    // Przeprowadzamy aktualizację planszy
-    for (int x = 0; x < SIZE_OF_BOARD; x++) {
-      for (int y = 0; y < SIZE_OF_BOARD; y++) {
-        double U = fft_real[x * SIZE_OF_BOARD + y];
-        double G = (2 * exp((-pow((U - MU), 2)) / (2 * SIGMA * SIGMA))) - 1;
-        double before_cut_value = current_board[x][y] + DLUGOSC_KROKU * G;
-        if (before_cut_value > 1.0) {
-          new_board[x][y] = 1.0;
-        } else if (before_cut_value < 0.0) {
-          new_board[x][y] = 0.0;
-        } else {
-          new_board[x][y] = before_cut_value;
-        }
-      }
-    }
+    double ms[NUMBER_OF_ITEMS]; // czasy sekcji i podsekcji tej iteracji [ms]
 
-    // Przenosimy nowa plansze na stara i przy okazji liczymy mase (sume
-    // komorek)
-    double mass = 0.0;
-#pragma omp parallel for reduction(+ : mass)
-    for (int i = 0; i < SIZE_OF_BOARD; i++) {
-      for (int j = 0; j < SIZE_OF_BOARD; j++) {
-        current_board[i][j] = new_board[i][j];
-        mass += current_board[i][j];
-      }
-    }
+    // Sekcja 1: potencjal U dla calej planszy naraz: U = IFFT( FFT(plansza) *
+    // FFT(maska) ). Czasy podsekcji 1a-1e mierzy sama funkcja, czas sekcji to
+    // ich suma.
+    PotentialTimes pot;
+    compute_potential_fft(&pot);
+    potential_times_to_items(&pot, ms);
+
+    // Sekcja 2: wzrost G(U) i aktualizacja do new_board
+    auto section_start = std::chrono::steady_clock::now();
+    compute_growth();
+    ms[SECTION_GROWTH] = ms_since(section_start);
+
+    // Sekcja 3: przenosimy nowa plansze na stara i liczymy mase
+    section_start = std::chrono::steady_clock::now();
+    double mass = copy_board_and_mass();
+    ms[SECTION_COPY_MASS] = ms_since(section_start);
 
     final_mass = mass;
     last_iteration = iteration;
     bool extinct = mass < EXTINCTION_MASS; // wszystkie komorki martwe
 
-    // Co SAVE_EVERY iteracji, a przy wymarciu zawsze - zeby ostatnia klatka
-    // byla zapisana
+    // Sekcja 4: zapis I/O. Co SAVE_EVERY iteracji, a przy wymarciu zawsze -
+    // zeby ostatnia klatka byla zapisana. W pozostalych iteracjach czas ~0.
+    section_start = std::chrono::steady_clock::now();
     if (iteration % SAVE_EVERY == 0 || extinct) {
       printf("iteracja %4d   masa %.1f\n", iteration, mass);
       if (save_board_frame(FRAMES_FOLDER, iteration, &current_board[0][0],
                            SIZE_OF_BOARD) != 0) {
+        fclose(profile_file);
         return 1; // błąd przy zapisie pliku
       }
+    }
+    ms[SECTION_IO] = ms_since(section_start);
+
+    // Rozgrzewka nie trafia do statystyk ani do pliku z profilem
+    if (iteration >= WARMUP_ITERATIONS &&
+        profile_record(&profile, profile_file, iteration, ms) != 0) {
+      fclose(profile_file);
+      return 1; // błąd przy zapisie pliku z profilem
     }
 
     if (extinct) {
@@ -204,11 +316,184 @@ int main(int argc, char *argv[]) {
                        .count();
   printf("Czas symulacji: %.2f s\n", seconds);
   free_fft();
-  if (write_result(OUTPUT_FOLDER, last_iteration, final_mass, died_out,
-                   seconds) != 0) {
+  if (fclose(profile_file) != 0) {
+    printf("Blad zapisu pliku %s\n", profile_path);
+    return 1; // błąd przy zamykaniu pliku z profilem
+  }
+  if (write_result(OUTPUT_FOLDER, last_iteration, final_mass, died_out, seconds,
+                   &profile) != 0) {
     return 1; // błąd przy dopisywaniu wyniku
   }
   return 0; // takze przy wymarciu - to nie blad, make ma otworzyc wizualizacje
+}
+
+/**
+ * @brief Growth function and board update into ::new_board.
+ *
+ * Reads the potential U from ::fft_real and ::current_board and writes the
+ * clipped new value of every cell to ::new_board (the formula is in the
+ * description of main()).
+ */
+void compute_growth(void) {
+#pragma omp parallel for
+  for (int x = 0; x < SIZE_OF_BOARD; x++) {
+    for (int y = 0; y < SIZE_OF_BOARD; y++) {
+      double U = fft_real[x * SIZE_OF_BOARD + y];
+      double G = (2 * exp((-pow((U - MU), 2)) / (2 * SIGMA * SIGMA))) - 1;
+      double before_cut_value = current_board[x][y] + DLUGOSC_KROKU * G;
+      if (before_cut_value > 1.0) {
+        new_board[x][y] = 1.0;
+      } else if (before_cut_value < 0.0) {
+        new_board[x][y] = 0.0;
+      } else {
+        new_board[x][y] = before_cut_value;
+      }
+    }
+  }
+}
+
+/**
+ * @brief Copies ::new_board to ::current_board and sums all cells.
+ *
+ * @return Total mass of the board (sum of all cells) after the copy.
+ */
+double copy_board_and_mass(void) {
+  double mass = 0.0;
+#pragma omp parallel for reduction(+ : mass)
+  for (int i = 0; i < SIZE_OF_BOARD; i++) {
+    for (int j = 0; j < SIZE_OF_BOARD; j++) {
+      current_board[i][j] = new_board[i][j];
+      mass += current_board[i][j];
+    }
+  }
+  return mass;
+}
+
+/**
+ * @brief Time elapsed since @p since.
+ *
+ * @param since Start of the measured section (std::chrono::steady_clock).
+ * @return Elapsed time in milliseconds.
+ */
+double ms_since(std::chrono::steady_clock::time_point since) {
+  return std::chrono::duration<double, std::milli>(
+             std::chrono::steady_clock::now() - since)
+      .count();
+}
+
+/**
+ * @brief Stores the times of compute_potential_fft() in the item array.
+ *
+ * Fills the subsection items (1a-1e) and the potential section item, which is
+ * the sum of the five steps.
+ *
+ * @param t  Times returned by compute_potential_fft().
+ * @param ms Times of the items in this iteration [ms], indexed by the item
+ *           indices (SECTION_POTENTIAL, ITEM_POT_*).
+ */
+void potential_times_to_items(const PotentialTimes *t, double *ms) {
+  ms[ITEM_POT_COPY] = t->copy_ms;
+  ms[ITEM_POT_FFT_FWD] = t->fft_fwd_ms;
+  ms[ITEM_POT_MULT] = t->mult_ms;
+  ms[ITEM_POT_FFT_BWD] = t->fft_bwd_ms;
+  ms[ITEM_POT_SCALE] = t->scale_ms;
+  ms[SECTION_POTENTIAL] =
+      t->copy_ms + t->fft_fwd_ms + t->mult_ms + t->fft_bwd_ms + t->scale_ms;
+}
+
+/**
+ * @brief Resets @p profile: no iterations, all statistics zero.
+ *
+ * @param profile Statistics to reset.
+ */
+void profile_init(Profile *profile) {
+  profile->count = 0;
+  profile->init_ms = 0.0;
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    profile->item[s] = SectionStats();
+  }
+}
+
+/**
+ * @brief Adds one iteration to the statistics and to the CSV file.
+ *
+ * Computes total_ms (sum of the four sections) and the share of every item
+ * (section or subsection) in it, updates sum / minimum / maximum (with
+ * iteration numbers) of the times and of the shares, and writes one line to
+ * @p csv. If total_ms is 0 (timer resolution), all shares of that iteration
+ * are 0.
+ *
+ * @param profile   Statistics to update.
+ * @param csv       Open profile file (see PROFILE_FILE).
+ * @param iteration Number of the iteration (written to the CSV).
+ * @param ms        Times of the items in this iteration [ms], indexed by the
+ *                  item indices (sections first, then subsections).
+ * @return 0 on success, 1 if the line could not be written.
+ */
+int profile_record(Profile *profile, FILE *csv, int iteration,
+                   const double *ms) {
+  double total_ms = 0.0; // suma sekcji 1-4 (podsekcje sa juz w sekcji 1)
+  for (int s = 0; s < NUMBER_OF_SECTIONS; s++) {
+    total_ms += ms[s];
+  }
+
+  bool first = (profile->count == 0); // pierwsza mierzona iteracja
+  double pct[NUMBER_OF_ITEMS];
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    pct[s] = total_ms > 0.0 ? ms[s] / total_ms * 100.0 : 0.0;
+    SectionStats *st = &profile->item[s];
+    st->sum_ms += ms[s];
+    st->pct_sum += pct[s];
+    if (first || ms[s] < st->min_ms) {
+      st->min_ms = ms[s];
+      st->min_ms_iter = iteration;
+    }
+    if (first || ms[s] > st->max_ms) {
+      st->max_ms = ms[s];
+      st->max_ms_iter = iteration;
+    }
+    if (first || pct[s] < st->pct_min) {
+      st->pct_min = pct[s];
+      st->pct_min_iter = iteration;
+    }
+    if (first || pct[s] > st->pct_max) {
+      st->pct_max = pct[s];
+      st->pct_max_iter = iteration;
+    }
+  }
+  profile->count++;
+
+  // Kolejnosc kolumn jak w PROFILE_CSV_HEADER
+  int ok = fprintf(csv, "%d", iteration) >= 0;
+  for (int s = 0; s < NUMBER_OF_SECTIONS; s++) {
+    ok &= fprintf(csv, ",%.6f", ms[s]) >= 0;
+  }
+  ok &= fprintf(csv, ",%.6f", total_ms) >= 0;
+  for (int s = 0; s < NUMBER_OF_SECTIONS; s++) {
+    ok &= fprintf(csv, ",%.4f", pct[s]) >= 0;
+  }
+  for (int s = NUMBER_OF_SECTIONS; s < NUMBER_OF_ITEMS; s++) {
+    ok &= fprintf(csv, ",%.6f", ms[s]) >= 0;
+  }
+  for (int s = NUMBER_OF_SECTIONS; s < NUMBER_OF_ITEMS; s++) {
+    ok &= fprintf(csv, ",%.4f", pct[s]) >= 0;
+  }
+  ok &= fprintf(csv, "\n") >= 0;
+  return ok ? 0 : 1;
+}
+
+/**
+ * @brief Total time of the computing sections (1-3, without I/O).
+ *
+ * @param profile Statistics of the run.
+ * @return Sum of the potential, growth and copy + mass times [ms].
+ */
+double profile_compute_sum_ms(const Profile *profile) {
+  double sum = 0.0;
+  for (int s = 0; s < NUMBER_OF_COMPUTE_SECTIONS; s++) {
+    sum += profile->item[s].sum_ms;
+  }
+  return sum;
 }
 
 /**
@@ -348,18 +633,31 @@ void init_fft(int threads) {
  * not normalise the backward transform, so the result is divided by N*N.
  * Afterwards `fft_real[x * SIZE_OF_BOARD + y]` holds U for cell [x][y] - the
  * same value the direct sum over ::mask would give (up to rounding errors).
+ *
+ * Every step has its own timer (read once per step, never inside a loop over
+ * cells).
+ *
+ * @param t Receives the times of the five steps [ms]: copy, forward FFT,
+ *          spectrum multiplication, backward FFT and scaling.
  */
-void compute_potential_fft(void) {
+void compute_potential_fft(PotentialTimes *t) {
+  // 1a: kopiowanie planszy do bufora FFT
+  auto step_start = std::chrono::steady_clock::now();
 #pragma omp parallel for
   for (int x = 0; x < SIZE_OF_BOARD; x++) {
     for (int y = 0; y < SIZE_OF_BOARD; y++) {
       fft_real[x * SIZE_OF_BOARD + y] = current_board[x][y];
     }
   }
+  t->copy_ms = ms_since(step_start);
 
+  // 1b: FFT w przod
+  step_start = std::chrono::steady_clock::now();
   fftw_execute(plan_forward);
+  t->fft_fwd_ms = ms_since(step_start);
 
-// Mnozenie widm: (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+  // 1c: mnozenie widm: (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+  step_start = std::chrono::steady_clock::now();
 #pragma omp parallel for
   for (int k = 0; k < FFT_COMPLEX_SIZE; k++) {
     double a = fft_board[k][0], b = fft_board[k][1];
@@ -367,14 +665,21 @@ void compute_potential_fft(void) {
     fft_board[k][0] = a * c - b * d;
     fft_board[k][1] = a * d + b * c;
   }
+  t->mult_ms = ms_since(step_start);
 
-  fftw_execute(plan_backward); // nadpisuje fft_board - nie jest juz potrzebne
+  // 1d: FFT w tyl (nadpisuje fft_board - nie jest juz potrzebne)
+  step_start = std::chrono::steady_clock::now();
+  fftw_execute(plan_backward);
+  t->fft_bwd_ms = ms_since(step_start);
 
+  // 1e: skalowanie przez 1/N^2
+  step_start = std::chrono::steady_clock::now();
   const double scale = 1.0 / (SIZE_OF_BOARD * SIZE_OF_BOARD);
 #pragma omp parallel for
   for (int i = 0; i < SIZE_OF_BOARD * SIZE_OF_BOARD; i++) {
     fft_real[i] *= scale;
   }
+  t->scale_ms = ms_since(step_start);
 }
 
 /**
@@ -489,7 +794,8 @@ int write_settings(const char *folder, int threads) {
  * @brief Appends the result of the run to `<folder>/SETTINGS_FILE`.
  *
  * Adds a [result] section: whether life survived, the last computed
- * iteration, the final mass and the run time (total and per iteration).
+ * iteration, the final mass and the run time (total and per iteration),
+ * followed by the [profile] section (see write_profile_section()).
  * If this section is missing, the run was interrupted.
  *
  * @param folder         Output folder with the file from write_settings().
@@ -498,10 +804,11 @@ int write_settings(const char *folder, int threads) {
  * @param died_out       true if the simulation stopped because life died out.
  * @param seconds        Run time of the simulation loop (including saving
  *                       the frames).
+ * @param profile        Timing statistics of the run.
  * @return 0 on success, 1 if the file could not be opened.
  */
 int write_result(const char *folder, int last_iteration, double final_mass,
-                 bool died_out, double seconds) {
+                 bool died_out, double seconds, const Profile *profile) {
   FILE *f = open_settings_file(folder, "a");
   if (f == NULL) {
     return 1;
@@ -513,6 +820,129 @@ int write_result(const char *folder, int last_iteration, double final_mass,
   fprintf(f, "time_seconds         = %.2f\n", seconds);
   fprintf(f, "time_per_iter_ms     = %.2f\n",
           1000.0 * seconds / (last_iteration + 1));
+  write_profile_section(f, profile);
   fclose(f);
   return 0;
+}
+
+/// Width of the key column in the [profile] section (longest key + 1).
+#define PROFILE_KEY_WIDTH 25
+
+/**
+ * @brief Prints one line "key = " of the [profile] section, key padded to
+ *        PROFILE_KEY_WIDTH, without the value and the newline.
+ *
+ * @param f      Open settings file.
+ * @param prefix Item name (see ::ITEM_NAMES), or "" for no prefix.
+ * @param suffix Rest of the key, e.g. "_mean_ms".
+ */
+static void print_profile_key(FILE *f, const char *prefix, const char *suffix) {
+  char key[64];
+  snprintf(key, sizeof(key), "%s%s", prefix, suffix);
+  fprintf(f, "%-*s= ", PROFILE_KEY_WIDTH, key);
+}
+
+/**
+ * @brief Appends the [profile] section to the settings file.
+ *
+ * Contains the number of iterations in the statistics (after warm-up), the
+ * initialisation time (init_ms, not part of the statistics of the steps) and,
+ * for every section and subsection: mean / minimum / maximum time [ms] (with
+ * iteration numbers), share of its total time in the total time of sections
+ * 1-4 [%], and mean / minimum / maximum of the per-iteration shares from the
+ * CSV file (with iteration numbers). For sections 1-3 also the share without
+ * I/O, and finally the throughput in cells per second, computed from the time
+ * of sections 1-3. If no iteration was measured (life died out during
+ * warm-up), only the counts, init_ms and a note are written, with no division
+ * by zero.
+ *
+ * @param f       Open settings file (appended to).
+ * @param profile Timing statistics of the run.
+ */
+void write_profile_section(FILE *f, const Profile *profile) {
+  fprintf(f, "\n[profile]\n");
+  print_profile_key(f, "", "warmup_iterations");
+  fprintf(f, "%d\n", WARMUP_ITERATIONS);
+  print_profile_key(f, "", "iterations_in_stats");
+  fprintf(f, "%d\n", profile->count);
+  print_profile_key(f, "", "init_ms");
+  fprintf(f, "%.3f\n", profile->init_ms);
+  if (profile->count == 0) {
+    print_profile_key(f, "", "note");
+    fprintf(f, "no iterations after warm-up - no statistics\n");
+    return;
+  }
+
+  double total_sum_ms = 0.0; // czas sekcji 1-4 (podsekcje sa juz w sekcji 1)
+  for (int s = 0; s < NUMBER_OF_SECTIONS; s++) {
+    total_sum_ms += profile->item[s].sum_ms;
+  }
+  double compute_sum_ms = profile_compute_sum_ms(profile); // sekcje 1-3
+
+  // Srednie, minima i maksima czasow
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_mean_ms");
+    fprintf(f, "%.6f\n", profile->item[s].sum_ms / profile->count);
+  }
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_min_ms");
+    fprintf(f, "%.6f (iteration %d)\n", profile->item[s].min_ms,
+            profile->item[s].min_ms_iter);
+  }
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_max_ms");
+    fprintf(f, "%.6f (iteration %d)\n", profile->item[s].max_ms,
+            profile->item[s].max_ms_iter);
+  }
+
+  // Udzial w calym czasie (suma czasu / suma czasu sekcji 1-4)
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_share_pct");
+    fprintf(f, "%.4f\n",
+            total_sum_ms > 0.0 ? profile->item[s].sum_ms / total_sum_ms * 100.0
+                               : 0.0);
+  }
+
+  // Udzial sekcji 1-3 bez I/O (czas samych obliczen)
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_COMPUTE_SECTIONS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_share_calc_pct");
+    fprintf(f, "%.4f\n",
+            compute_sum_ms > 0.0
+                ? profile->item[s].sum_ms / compute_sum_ms * 100.0
+                : 0.0);
+  }
+
+  // Udzialy procentowe tak jak w pliku CSV: srednia, minimum, maksimum
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_csv_mean_pct");
+    fprintf(f, "%.4f\n", profile->item[s].pct_sum / profile->count);
+  }
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_csv_min_pct");
+    fprintf(f, "%.4f (iteration %d)\n", profile->item[s].pct_min,
+            profile->item[s].pct_min_iter);
+  }
+  fprintf(f, "\n");
+  for (int s = 0; s < NUMBER_OF_ITEMS; s++) {
+    print_profile_key(f, ITEM_NAMES[s], "_csv_max_pct");
+    fprintf(f, "%.4f (iteration %d)\n", profile->item[s].pct_max,
+            profile->item[s].pct_max_iter);
+  }
+
+  // Przepustowosc: komorki na sekunde, z czasu sekcji 1-3 (bez I/O)
+  fprintf(f, "\n");
+  print_profile_key(f, "", "cells_per_second");
+  if (compute_sum_ms > 0.0) {
+    fprintf(f, "%.0f\n", (double)SIZE_OF_BOARD * SIZE_OF_BOARD * profile->count /
+                             (compute_sum_ms / 1000.0));
+  } else {
+    fprintf(f, "n/a\n");
+  }
 }
